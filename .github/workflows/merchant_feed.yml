@@ -1,53 +1,99 @@
 name: BusAuto — Google Merchant Center Feed
 
-# Запускається щодня о 07:00 UTC = 10:00 за Київським часом
-# Також можна запустити вручну через GitHub → Actions → Run workflow
+# Щодня о 07:00 UTC = 10:00 Київ — тільки змінені товари (~5 хв)
+# Раз на тиждень повний синк паралельно (3 воркери = ~40 хв замість 2 год)
 on:
   schedule:
-    - cron: '0 7 * * *'
-  workflow_dispatch:   # кнопка ручного запуску в GitHub
+    - cron: '0 7 * * *'       # щодня 10:00 — daily режим
+    - cron: '0 5 * * 1'       # щопонеділка 08:00 — повний синк
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Режим синхронізації'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - full
 
+# ── ЩОДЕННИЙ ШВИДКИЙ СИНК (тільки змінені товари) ──────────────────
 jobs:
-  update-merchant-feed:
-    name: Оновити товари в Google Merchant Center
+  daily-sync:
+    name: Daily sync (changed products only)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    # Запускається тільки щодня (не в понеділок повний синк, не вручну)
+    if: github.event_name == 'schedule' && github.event.schedule == '0 7 * * *'
 
     steps:
-      - name: Завантажити код
-        uses: actions/checkout@v4
-
-      - name: Налаштувати Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+      - run: pip install google-auth requests
 
-      - name: Встановити бібліотеки
-        run: pip install google-auth requests
-
-      - name: Створити odoo_config.txt з секретів
+      - name: Create configs
         run: |
-          cat > odoo_config.txt << EOF
-          [odoo]
-          url = https://busauto.ua
-          database = busauto
-          username = busauto.ua@gmail.com
-          api_key = ${{ secrets.ODOO_API_KEY }}
-          EOF
+          printf '[odoo]\nurl = https://busauto.ua\ndatabase = busauto\nusername = busauto.ua@gmail.com\napi_key = %s\n' "${{ secrets.ODOO_API_KEY }}" > odoo_config.txt
+          echo '${{ secrets.GOOGLE_MERCHANT_KEY_JSON }}' > google_merchant_key.json
 
-      - name: Створити google_merchant_key.json з секрету
-        run: echo '${{ secrets.GOOGLE_MERCHANT_KEY_JSON }}' > google_merchant_key.json
+      - name: Daily sync — only changed products
+        run: python push_to_merchant_api.py --mode daily --days 2
 
-      - name: Запустити оновлення Merchant Center
-        run: python push_to_merchant_api.py
-
-      - name: Зберегти лог як артефакт
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: merchant-api-log-${{ github.run_number }}
-          path: |
-            merchant_api.log
-            merchant_api_progress.json
+          name: daily-log-${{ github.run_number }}
+          path: merchant_api.log
+          retention-days: 14
+
+# ── ПОВНИЙ СИНК ПАРАЛЕЛЬНО (3 воркери) ─────────────────────────────
+  full-sync:
+    name: Full sync — worker ${{ matrix.worker }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Запускається в понеділок або вручну з mode=full
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 5 * * 1') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'full')
+
+    strategy:
+      matrix:
+        include:
+          - worker: 1
+            offset: 0
+            count: 40000
+          - worker: 2
+            offset: 40000
+            count: 40000
+          - worker: 3
+            offset: 80000
+            count: 60000
+      fail-fast: false   # якщо один впав — інші продовжують
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-auth requests
+
+      - name: Create configs
+        run: |
+          printf '[odoo]\nurl = https://busauto.ua\ndatabase = busauto\nusername = busauto.ua@gmail.com\napi_key = %s\n' "${{ secrets.ODOO_API_KEY }}" > odoo_config.txt
+          echo '${{ secrets.GOOGLE_MERCHANT_KEY_JSON }}' > google_merchant_key.json
+
+      - name: Full sync — worker ${{ matrix.worker }} (offset ${{ matrix.offset }})
+        run: |
+          python push_to_merchant_api.py \
+            --mode full \
+            --offset ${{ matrix.offset }} \
+            --count ${{ matrix.count }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-log-worker${{ matrix.worker }}-${{ github.run_number }}
+          path: merchant_api.log
           retention-days: 30
