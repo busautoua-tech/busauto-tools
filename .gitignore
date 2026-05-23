@@ -1,0 +1,18 @@
+﻿# Secrets - never push to GitHub
+odoo_config.txt
+google_merchant_key.json
+
+# Logs and cache
+*.log
+merchant_api_progress.json
+google_feed.xml
+
+# Dashboard data
+dashboard_data/
+sync_log.json
+
+# Python cache
+__pycache__/
+*.pyc
+.venv/
+mcp-google-ads/.venv/

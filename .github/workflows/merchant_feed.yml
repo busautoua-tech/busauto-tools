@@ -1,0 +1,53 @@
+name: BusAuto — Google Merchant Center Feed
+
+# Запускається щодня о 07:00 UTC = 10:00 за Київським часом
+# Також можна запустити вручну через GitHub → Actions → Run workflow
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:   # кнопка ручного запуску в GitHub
+
+jobs:
+  update-merchant-feed:
+    name: Оновити товари в Google Merchant Center
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Завантажити код
+        uses: actions/checkout@v4
+
+      - name: Налаштувати Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Встановити бібліотеки
+        run: pip install google-auth requests
+
+      - name: Створити odoo_config.txt з секретів
+        run: |
+          cat > odoo_config.txt << EOF
+          [odoo]
+          url = https://busauto.ua
+          database = busauto
+          username = busauto.ua@gmail.com
+          api_key = ${{ secrets.ODOO_API_KEY }}
+          EOF
+
+      - name: Створити google_merchant_key.json з секрету
+        run: echo '${{ secrets.GOOGLE_MERCHANT_KEY_JSON }}' > google_merchant_key.json
+
+      - name: Запустити оновлення Merchant Center
+        run: python push_to_merchant_api.py
+
+      - name: Зберегти лог як артефакт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merchant-api-log-${{ github.run_number }}
+          path: |
+            merchant_api.log
+            merchant_api_progress.json
+          retention-days: 30
