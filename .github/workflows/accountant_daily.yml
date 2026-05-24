@@ -1,0 +1,50 @@
+name: Accountant Daily Digest
+
+on:
+  # Щодня з понеділка по п'ятницю о 07:00 UTC = 10:00 Київ
+  # (вихідних не шлемо — бухгалтер не працює)
+  schedule:
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  accountant-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Create config files from secrets
+        run: |
+          cat > odoo_config.txt <<EOF
+          [odoo]
+          url = ${{ secrets.ODOO_URL }}
+          database = ${{ secrets.ODOO_DATABASE }}
+          username = ${{ secrets.ODOO_USERNAME }}
+          api_key = ${{ secrets.ODOO_API_KEY }}
+          EOF
+          cat > telegram_config.txt <<EOF
+          [telegram]
+          bot_token = ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id = ${{ secrets.TELEGRAM_CHAT_ID }}
+          chat_id_accountant = ${{ secrets.TELEGRAM_CHAT_ID_ACCOUNTANT }}
+          EOF
+          mkdir -p dashboard_data
+
+      - name: Run operational export
+        run: python odoo_export.py
+        timeout-minutes: 10
+
+      - name: Run finance export (для дебіторки/кредиторки)
+        run: python finance_export.py
+        timeout-minutes: 20
+
+      - name: Send accountant digest
+        run: python finance_digest.py --mode accountant

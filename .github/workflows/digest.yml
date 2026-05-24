@@ -1,0 +1,71 @@
+name: Daily BusAuto Digest
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tzdata
+        run: pip install --quiet tzdata
+
+      - name: Create configs
+        run: |
+          cat > odoo_config.txt <<EOF
+          [odoo]
+          url = ${{ secrets.ODOO_URL }}
+          database = ${{ secrets.ODOO_DATABASE }}
+          username = ${{ secrets.ODOO_USERNAME }}
+          api_key = ${{ secrets.ODOO_API_KEY }}
+          EOF
+          cat > telegram_config.txt <<EOF
+          [telegram]
+          bot_token = ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id = ${{ secrets.TELEGRAM_CHAT_ID }}
+          EOF
+          mkdir -p dashboard_data
+
+      - name: Run Odoo export
+        run: python odoo_export.py
+        timeout-minutes: 15
+
+      - name: Run Finance export
+        run: python finance_export.py
+        timeout-minutes: 25
+        continue-on-error: true
+
+      - name: Send daily digest
+        run: python daily_digest.py
+
+      - name: Build dashboards
+        run: python build_dashboard.py
+        continue-on-error: true
+
+      - name: Send dashboards
+        run: python send_dashboards_telegram.py
+        continue-on-error: true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard_data-${{ github.run_number }}
+          path: |
+            dashboard_data/summary.json
+            dashboard_data/finance_summary.json
+            busauto_owner_dashboard.html
+            busauto_warehouse_dashboard.html
+            busauto_financial_dashboard.html
+          retention-days: 7

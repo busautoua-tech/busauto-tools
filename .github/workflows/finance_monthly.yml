@@ -1,0 +1,61 @@
+name: Monthly Finance Digest
+
+on:
+  schedule:
+    - cron: "0 7 1 * *"
+  workflow_dispatch:
+
+jobs:
+  monthly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tzdata
+        run: pip install --quiet tzdata
+
+      - name: Create configs
+        run: |
+          cat > odoo_config.txt <<EOF
+          [odoo]
+          url = ${{ secrets.ODOO_URL }}
+          database = ${{ secrets.ODOO_DATABASE }}
+          username = ${{ secrets.ODOO_USERNAME }}
+          api_key = ${{ secrets.ODOO_API_KEY }}
+          EOF
+          cat > telegram_config.txt <<EOF
+          [telegram]
+          bot_token = ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id = ${{ secrets.TELEGRAM_CHAT_ID }}
+          EOF
+          mkdir -p dashboard_data
+
+      - name: Run Finance export
+        run: python finance_export.py
+        timeout-minutes: 25
+
+      - name: Send monthly digest
+        run: python finance_digest.py --mode monthly
+
+      - name: Build dashboards
+        run: python build_dashboard.py
+        continue-on-error: true
+
+      - name: Send dashboards
+        run: python send_dashboards_telegram.py
+        continue-on-error: true
+
+      - name: Upload finance summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-summary-monthly-${{ github.run_number }}
+          path: dashboard_data/finance_summary.json
+          retention-days: 90
