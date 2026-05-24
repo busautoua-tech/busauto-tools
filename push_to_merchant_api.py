@@ -159,44 +159,92 @@ MARKUP_TABLE = [
 ]
 LBS_MIN_MARGIN = 100.0   # мінімальний абсолютний прибуток в UAH
 
-# Категорійні правила: categ_id → фіксований % надбавки (замість таблиці)
+# Категорійні правила: categ_id → % надбавки на ціну постачальника
 # categ "50 %" id=6 | categ "100 %" id=7 | categ "200 %" id=9
 CATEG_MARKUP = {
     6: 50.0,
     7: 100.0,
     9: 200.0,
 }
+# Категорії на standard_price (не ціну постачальника)
+# categ "35 %" id=13 → 35% на standard_price
+CATEG_STD_PRICE_MARKUP = {
+    13: 35.0,
+}
 
 
-def apply_markup(supplier_price_uah, categ_id=None, categ_ancestors=None):
+def _apply_tiered_markup(price_uah, markup_table, min_margin=100.0):
+    """Застосовує таблицю тирів до ціни, повертає роздрібну ціну."""
+    if price_uah <= 0:
+        return 0.0
+    pct = markup_table[-1][2] if markup_table else 10.0
+    for from_p, to_p, tier_pct in markup_table:
+        if from_p <= price_uah < to_p:
+            pct = tier_pct
+            break
+    retail = price_uah * (1 + pct / 100.0)
+    retail = max(retail, price_uah + min_margin)
+    return round(retail, 2)
+
+
+def apply_markup(supplier_price_uah, categ_id=None, categ_ancestors=None,
+                 brand_markup_table=None):
     """
-    Розраховуємо роздрібну ціну.
-    Пріоритет:
-      1. Категорійне правило (categ_id або батьківська категорія = 6/7/9)
-      2. Глобальна таблиця надбавок (правило 881)
+    Розраховуємо роздрібну ціну по ціні постачальника.
+    Пріоритет правил:
+      1. Категорійне правило (categ 6/7/9) — фіксований % на ціну постачальника
+      2. Бренд-правило (brand_markup_table) — тири на ціну постачальника
+      3. Глобальна таблиця надбавок (правило 881)
+    Категорія 13 (35% на standard_price) обробляється окремо в load_products().
     """
     if supplier_price_uah <= 0:
         return 0.0
 
-    # Перевіряємо категорію і всіх батьків
-    markup_pct = None
+    # Пріоритет 1: Категорійне правило (supplier-based)
     for cid in ([categ_id] if categ_id else []) + (categ_ancestors or []):
         if cid in CATEG_MARKUP:
             markup_pct = CATEG_MARKUP[cid]
-            break
+            retail = supplier_price_uah * (1 + markup_pct / 100.0)
+            retail = max(retail, supplier_price_uah + LBS_MIN_MARGIN)
+            return round(retail, 2)
 
-    # Якщо категорійне правило не знайдено — глобальна таблиця
-    if markup_pct is None:
-        markup_pct = 10.0   # за замовчуванням якщо ціна > 100000
-        for from_p, to_p, pct in MARKUP_TABLE:
-            if from_p <= supplier_price_uah < to_p:
-                markup_pct = pct
-                break
+    # Пріоритет 2: Бренд-правило
+    if brand_markup_table:
+        return _apply_tiered_markup(supplier_price_uah, brand_markup_table, LBS_MIN_MARGIN)
 
-    retail = supplier_price_uah * (1 + markup_pct / 100.0)
-    # Мінімальна маржа: ціна не менше ніж собівартість + LBS_MIN_MARGIN
-    retail = max(retail, supplier_price_uah + LBS_MIN_MARGIN)
-    return round(retail, 2)
+    # Пріоритет 3: Глобальна таблиця (правило 881)
+    return _apply_tiered_markup(supplier_price_uah, MARKUP_TABLE, LBS_MIN_MARGIN)
+
+
+def load_brand_markup_rules(models, db, uid, apikey):
+    """
+    Завантажуємо brand-правила прайс-листа (applied_on='3_1_brand', is_suppler_price=True).
+    Повертає список: [(brand_id_set, markup_table, min_margin), ...]
+    """
+    rules = []
+    try:
+        items = models.execute_kw(db, uid, apikey,
+            'product.pricelist.item', 'search_read',
+            [[['pricelist_id',     '=', 1],
+              ['applied_on',       '=', '3_1_brand'],
+              ['is_suppler_price', '=', True]]],
+            {'fields': ['brand_ids', 'add_supp_markup_ids', 'lbs_min_margin']})
+        for item in items:
+            tier_ids = item.get('add_supp_markup_ids', [])
+            if not tier_ids:
+                continue
+            tiers_raw = models.execute_kw(db, uid, apikey,
+                'lbs.pricelist.supp.markup', 'read', [tier_ids], {})
+            markup_table = sorted(
+                [(t['from_price'], t['to_price'], t['percent']) for t in tiers_raw])
+            brand_ids  = set(item.get('brand_ids', []))
+            min_margin = float(item.get('lbs_min_margin') or 100.0)
+            rules.append((brand_ids, markup_table, min_margin))
+        log(f"  Brand markup rules: {len(rules)} правила, "
+            f"{sum(len(r[0]) for r in rules)} брендів")
+    except Exception as e:
+        log(f"  ⚠ Помилка завантаження brand rules: {e}")
+    return rules
 
 
 def load_categ_ancestors(models, db, uid, apikey):
@@ -389,7 +437,7 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
         log("Режим FULL — всі товари (перший/повний синк)")
 
     fields = [
-        "id", "name", "default_code", "list_price",
+        "id", "name", "default_code", "list_price", "standard_price",
         "product_variant_ids",
         "product_brand_id", "categ_id",
         "description_sale", "website_url",
@@ -460,6 +508,10 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
     log("Завантажуємо ієрархію категорій...")
     categ_ancestors_map = load_categ_ancestors(models, db, uid, apikey)
 
+    # ── Крок 5б: brand markup rules ──────────────────────────────────
+    log("Завантажуємо brand markup rules...")
+    brand_markup_rules = load_brand_markup_rules(models, db, uid, apikey)
+
     # ── Крок 6: фіксовані ціни прайс-листа (пріоритет 1) ────────────
     RETAIL_PRICELIST_ID = 1
     log("Завантажуємо фіксовані ціни прайс-листа 'Розниця'...")
@@ -504,8 +556,29 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
                 matched_fixed += 1
                 break
 
+        # Визначаємо бренд і categ один раз (потрібно для кількох пріоритетів)
+        categ_raw = p.get("categ_id")
+        categ_id  = categ_raw[0] if isinstance(categ_raw, (list, tuple)) else categ_raw
+        ancestors = categ_ancestors_map.get(categ_id, [categ_id] if categ_id else [])
+
+        brand_raw = p.get("product_brand_id")
+        brand_id  = brand_raw[0] if isinstance(brand_raw, (list, tuple)) else brand_raw
+
+        # Знаходимо brand markup table (якщо є)
+        brand_markup_table = None
+        for (bids, btable, bmin) in brand_markup_rules:
+            if brand_id and brand_id in bids:
+                brand_markup_table = btable
+                break
+
+        # Перевіряємо categ 13 (35% на standard_price, без supplier)
+        uses_std_price_categ = any(
+            cid in CATEG_STD_PRICE_MARKUP
+            for cid in ([categ_id] if categ_id else []) + ancestors
+        )
+
         # Пріоритет 2: середня роздрібна по постачальниках З НАЯВНІСТЮ
-        if retail <= 1:
+        if retail <= 1 and not uses_std_price_categ:
             all_prices = supp_price_map.get(tmpl_id, {})  # {partner_id: price_uah}
 
             # Визначаємо яких постачальників цього шаблону є на складі
@@ -525,23 +598,42 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
                 matched_stock_avg += 1
 
             if prices_to_use:
-                categ_raw = p.get("categ_id")
-                categ_id  = categ_raw[0] if isinstance(categ_raw, (list, tuple)) else categ_raw
-                ancestors = categ_ancestors_map.get(categ_id, [categ_id] if categ_id else [])
-
                 # Роздрібна ціна для кожного постачальника → середня
                 retail_prices = [
-                    apply_markup(price_uah, categ_id=categ_id, categ_ancestors=ancestors)
+                    apply_markup(price_uah, categ_id=categ_id,
+                                 categ_ancestors=ancestors,
+                                 brand_markup_table=brand_markup_table)
                     for price_uah in prices_to_use.values()
                 ]
                 retail = round(sum(retail_prices) / len(retail_prices), 2)
 
-        # Пріоритет 3: list_price (запасний варіант для товарів без supplierinfo)
+        # Пріоритет 3: categ 13 або fallback — standard_price
+        if retail <= 1:
+            std_price = float(p.get("standard_price") or 0.0)
+            if std_price > 0:
+                # Categ 13: фіксований %
+                std_markup = None
+                for cid in ([categ_id] if categ_id else []) + ancestors:
+                    if cid in CATEG_STD_PRICE_MARKUP:
+                        std_markup = CATEG_STD_PRICE_MARKUP[cid]
+                        break
+                if std_markup is None:
+                    # Fallback: brand tiers або global на standard_price
+                    if brand_markup_table:
+                        retail = _apply_tiered_markup(std_price, brand_markup_table, LBS_MIN_MARGIN)
+                    else:
+                        retail = _apply_tiered_markup(std_price, MARKUP_TABLE, LBS_MIN_MARGIN)
+                else:
+                    retail = round(max(std_price * (1 + std_markup / 100.0),
+                                       std_price + LBS_MIN_MARGIN), 2)
+            if retail <= 1:
+                no_price += 1
+
+        # Пріоритет 4: list_price (запасний для товарів без будь-яких цін)
         if retail <= 1:
             lp = p.get("list_price") or 0.0
             if lp > 1:
                 retail = lp
-            no_price += 1
 
         p["retail_price"] = retail
 
@@ -561,8 +653,22 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
         categ_raw = ex.get("categ_id")
         categ_id  = categ_raw[0] if isinstance(categ_raw, (list, tuple)) else categ_raw
         ancestors = categ_ancestors_map.get(categ_id, [])
-        used_categ = next((c for c in ancestors if c in CATEG_MARKUP), None)
-        rule_info = f"categ_rule={used_categ}({CATEG_MARKUP[used_categ]}%)" if used_categ else "global_table"
+        brand_raw = ex.get("product_brand_id")
+        brand_id  = brand_raw[0] if isinstance(brand_raw, (list, tuple)) else brand_raw
+        brand_name = brand_raw[1] if isinstance(brand_raw, (list, tuple)) and len(brand_raw) > 1 else ""
+
+        used_categ = next((c for c in ([categ_id] + ancestors) if c in CATEG_MARKUP), None)
+        used_std_categ = next((c for c in ([categ_id] + ancestors) if c in CATEG_STD_PRICE_MARKUP), None)
+        has_brand_rule = any(brand_id and brand_id in r[0] for r in brand_markup_rules)
+
+        if used_categ:
+            rule_info = f"categ={used_categ}({CATEG_MARKUP[used_categ]}%)"
+        elif used_std_categ:
+            rule_info = f"categ_std={used_std_categ}({CATEG_STD_PRICE_MARKUP[used_std_categ]}%/std_price)"
+        elif has_brand_rule:
+            rule_info = f"brand={brand_name}"
+        else:
+            rule_info = "global"
         stock_flag = "stock" if tmpl_sp else "no_stock_fallback"
         log(f"  ✓ {ex.get('default_code')} → retail={ex.get('retail_price')}"
             f" n_supps={len(used)} [{rule_info}] [{stock_flag}]")
