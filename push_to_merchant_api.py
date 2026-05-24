@@ -70,6 +70,10 @@ PAUSE_SEC     = 0.2    # мінімальна пауза між пакетами
 # Google product category: 5765 = Vehicle Parts & Accessories
 GOOGLE_CATEGORY = "5765"
 
+# Якщо True — завантажуємо і відправляємо товари на ДВОХ мовах: uk + ru
+# Кожен товар → два записи в Merchant Center (contentLanguage: "uk" і "ru")
+DUAL_LANGUAGE = True
+
 
 # ── Логування ────────────────────────────────────────────────────────
 
@@ -482,6 +486,39 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
 
     tmpl_ids = [p["id"] for p in products]
 
+    # ── Крок 0б: завантажуємо російські назви (якщо DUAL_LANGUAGE) ──────
+    if DUAL_LANGUAGE:
+        log("Завантажуємо назви товарів на ru_RU...")
+        ru_names = {}
+        ru_offset = 0
+        ru_chunk = ODOO_CHUNK
+        while True:
+            try:
+                chunk_ru = models.execute_kw(db, uid, apikey,
+                    "product.template", "search_read", [domain],
+                    {"fields": ["id", "name", "description_sale"],
+                     "limit": ru_chunk, "offset": ru_offset,
+                     "context": {"lang": "ru_RU"}})
+            except Exception as e:
+                log(f"  ⚠ Помилка завантаження ru_RU назв: {e}")
+                break
+            if not chunk_ru:
+                break
+            for item in chunk_ru:
+                ru_names[item["id"]] = {
+                    "name": item.get("name") or "",
+                    "desc": item.get("description_sale") or "",
+                }
+            if len(chunk_ru) < ru_chunk:
+                break
+            ru_offset += ru_chunk
+        log(f"  Завантажено ru_RU назв: {len(ru_names)}")
+        # Додаємо russian-дані в кожен продукт
+        for p in products:
+            ru = ru_names.get(p["id"], {})
+            p["name_ru"] = ru.get("name") or p.get("name") or ""
+            p["desc_ru"]  = ru.get("desc") or p.get("description_sale") or ""
+
     # Збираємо всі variant IDs для запиту stock.quant
     all_variant_ids = []
     for p in products:
@@ -700,10 +737,14 @@ def get_brand(product):
     return ""
 
 
-def build_product_payload(p):
+def build_product_payload(p, lang="uk"):
     """
     Формуємо об'єкт товару у форматі Google Content API
     Документація: https://developers.google.com/shopping-content/reference/rest/v2.1/products
+
+    lang: "uk" або "ru" — мова контенту для contentLanguage
+      - "uk": використовує p["name"] та p["description_sale"]
+      - "ru": використовує p["name_ru"] та p["desc_ru"] (завантажені з ru_RU context)
     """
     pid   = p.get("id")
     code  = (p.get("default_code") or "").strip()
@@ -712,17 +753,28 @@ def build_product_payload(p):
     qty   = p.get("qty_available") or 0
     brand = get_brand(p) or "BusAuto"
 
-    name  = clean_html(p.get("name") or "")
+    # Обираємо назву і опис залежно від мови
+    if lang == "ru":
+        raw_name = p.get("name_ru") or p.get("name") or ""
+        raw_desc = p.get("desc_ru") or p.get("description_sale") or ""
+        fallback_desc = (f"Автозапчасть {brand} {clean_html(raw_name)}. "
+                         "В наличии. Доставка по всей Украине 1-2 дня.")
+    else:
+        raw_name = p.get("name") or ""
+        raw_desc = p.get("description_sale") or ""
+        fallback_desc = (f"Автозапчастина {brand} {clean_html(raw_name)}. "
+                         "В наявності. Доставка по всій Україні 1-2 дні.")
+
+    name  = clean_html(raw_name)
     if brand and brand.lower() not in name.lower():
         title = f"{brand} {name}"
     else:
         title = name
     title = clean_html(title, 150)
 
-    desc = clean_html(p.get("description_sale") or "", 5000)
+    desc = clean_html(raw_desc, 5000)
     if len(desc) < 20:
-        desc = (f"Автозапчастина {brand} {name}. "
-                "В наявності. Доставка по всій Україні 1-2 дні.")
+        desc = fallback_desc
 
     # URL сторінки товару
     wu = (p.get("website_url") or "").strip()
@@ -735,12 +787,12 @@ def build_product_payload(p):
     image_url = f"{SHOP_URL}/web/image/product.template/{pid}/image_1920"
 
     product_payload = {
-        "offerId":      code,          # унікальний ID товару
-        "title":        title,
-        "description":  desc,
-        "link":         link,
-        "imageLink":    image_url,
-        "contentLanguage": "uk",       # українська мова
+        "offerId":         code,       # унікальний ID товару (однаковий для uk і ru)
+        "title":           title,
+        "description":     desc,
+        "link":            link,
+        "imageLink":       image_url,
+        "contentLanguage": lang,       # "uk" або "ru"
         "targetCountry":   "UA",       # Україна
         "channel":         "online",
         "availability":    "in_stock" if qty > 0 else "out_of_stock",
@@ -887,6 +939,9 @@ def main():
     batch_num = 0
     batch     = []
 
+    # Мови для відправки: завжди uk, + ru якщо DUAL_LANGUAGE
+    langs_to_send = ["uk", "ru"] if DUAL_LANGUAGE else ["uk"]
+
     for p in products:
         code = (p.get("default_code") or "").strip()
         # Пропускаємо якщо немає артикулу або ціна <= 1 (заглушка в Одо)
@@ -894,19 +949,20 @@ def main():
         if not code or actual_price <= 1:
             continue
 
-        try:
-            payload = build_product_payload(p)
-        except Exception as e:
-            log(f"  Помилка підготовки {code}: {e}")
-            continue
+        for lang in langs_to_send:
+            try:
+                payload = build_product_payload(p, lang=lang)
+            except Exception as e:
+                log(f"  Помилка підготовки {code} [{lang}]: {e}")
+                continue
 
-        entry_id = len(batch) + 1
-        batch.append({
-            "batchId":    entry_id,
-            "merchantId": MERCHANT_ID,
-            "method":     "insert",
-            "product":    payload,
-        })
+            entry_id = len(batch) + 1
+            batch.append({
+                "batchId":    entry_id,
+                "merchantId": MERCHANT_ID,
+                "method":     "insert",
+                "product":    payload,
+            })
 
         if len(batch) >= API_BATCH:
             batch_num += 1
@@ -918,10 +974,11 @@ def main():
             for e_msg in errs:
                 log(f"  ⚠ {e_msg}")
 
-            # Зберігаємо прогрес
+            # Зберігаємо прогрес (ключ: offerId:lang)
             for entry in batch:
-                oid = entry["product"]["offerId"]
-                progress["uploaded"][oid] = datetime.now().strftime("%Y-%m-%d")
+                oid  = entry["product"]["offerId"]
+                clng = entry["product"].get("contentLanguage", "uk")
+                progress["uploaded"][f"{oid}:{clng}"] = datetime.now().strftime("%Y-%m-%d")
             progress["last_run"]      = datetime.now().strftime("%Y-%m-%d %H:%M")
             progress["total_uploaded"] = len(progress["uploaded"])
             save_progress(progress)
@@ -940,8 +997,9 @@ def main():
         for e_msg in errs:
             log(f"  ⚠ {e_msg}")
         for entry in batch:
-            oid = entry["product"]["offerId"]
-            progress["uploaded"][oid] = datetime.now().strftime("%Y-%m-%d")
+            oid  = entry["product"]["offerId"]
+            clng = entry["product"].get("contentLanguage", "uk")
+            progress["uploaded"][f"{oid}:{clng}"] = datetime.now().strftime("%Y-%m-%d")
         progress["last_run"]      = datetime.now().strftime("%Y-%m-%d %H:%M")
         progress["total_uploaded"] = len(progress["uploaded"])
         save_progress(progress)
@@ -950,9 +1008,10 @@ def main():
     log("")
     log("=" * 60)
     log(f"✅  ЗАВАНТАЖЕННЯ ЗАВЕРШЕНО!")
-    log(f"   Успішно: {total_ok} товарів")
-    log(f"   Помилок: {total_err} товарів")
+    log(f"   Успішно: {total_ok} записів ({', '.join(langs_to_send)} мови)")
+    log(f"   Помилок: {total_err} записів")
     log(f"   Пакетів відправлено: {batch_num}")
+    log(f"   Мови: {', '.join(langs_to_send)}")
     log("")
     log("   Merchant Center → Товари й магазин → Товари")
     log("   Товари з'являються протягом ~30 хвилин")
