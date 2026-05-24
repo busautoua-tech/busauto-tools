@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BusAuto — Дашборд собственника</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
+<style>
+:root{--bg-primary:#f5f6f8;--bg-card:#fff;--bg-header:#0f1b2d;
+  --text-primary:#1a1f2e;--text-secondary:#6c7689;--text-on-dark:#fff;
+  --c1:#3b82f6;--c2:#f59e0b;--c3:#10b981;--c4:#ef4444;--c5:#8b5cf6;--c6:#06b6d4;
+  --positive:#10b981;--negative:#ef4444;--gap:16px;--radius:10px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.5}
+.dashboard-container{max-width:1500px;margin:0 auto;padding:var(--gap)}
+.dashboard-header{background:var(--bg-header);color:var(--text-on-dark);padding:20px 24px;border-radius:var(--radius);margin-bottom:var(--gap);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.dashboard-header h1{font-size:20px;font-weight:600}
+.dashboard-header .sub{font-size:12px;color:rgba(255,255,255,.65);margin-top:4px}
+.filters{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.filter-group{display:flex;align-items:center;gap:6px}
+.filter-group label{font-size:12px;color:rgba(255,255,255,.7)}
+.filter-group select{padding:6px 10px;border:1px solid rgba(255,255,255,.2);border-radius:6px;background:rgba(255,255,255,.08);color:var(--text-on-dark);font-size:13px;cursor:pointer;min-width:140px}
+.filter-group select option{background:var(--bg-header);color:var(--text-on-dark)}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.kpi-card{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:3px solid var(--c1)}
+.kpi-card.warn{border-left-color:var(--c2)}
+.kpi-card.good{border-left-color:var(--c3)}
+.kpi-card.alert{border-left-color:var(--c4)}
+.kpi-card.muted{border-left-color:#cbd5e1;opacity:.7}
+.kpi-label{font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
+.kpi-value{font-size:26px;font-weight:700;color:var(--text-primary);margin-bottom:4px}
+.kpi-change{font-size:12px;font-weight:500}
+.kpi-change.positive{color:var(--positive)}
+.kpi-change.negative{color:var(--negative)}
+.kpi-change.muted{color:var(--text-secondary);font-style:italic}
+.chart-row{display:grid;grid-template-columns:2fr 1fr;gap:var(--gap);margin-bottom:var(--gap)}
+.chart-row.even{grid-template-columns:1fr 1fr}
+@media (max-width:1000px){.chart-row,.chart-row.even{grid-template-columns:1fr}}
+.chart-container{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.chart-container h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.chart-container canvas{max-height:280px}
+.table-section{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow-x:auto;margin-bottom:var(--gap)}
+.table-section h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table thead th{text-align:left;padding:10px 12px;border-bottom:2px solid #e9ecef;color:var(--text-secondary);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.data-table tbody td{padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+.data-table tbody tr:hover{background:#f8f9fa}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.code{font-family:'Consolas','Monaco',monospace;font-size:12px;color:var(--text-secondary)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge.green{background:#dcfce7;color:#166534}
+.badge.amber{background:#fef3c7;color:#92400e}
+.badge.red{background:#fee2e2;color:#991b1b}
+.callout{background:#fef3c7;border-left:4px solid var(--c2);padding:12px 16px;border-radius:6px;margin-bottom:var(--gap);font-size:13px}
+.callout strong{color:#92400e}
+.callout.danger{background:#fee2e2;border-left-color:var(--c4)}
+.callout.danger strong{color:#991b1b}
+.dashboard-footer{font-size:11px;color:var(--text-secondary);text-align:center;padding:8px 0}
+</style>
+</head>
+<body>
+<div class="dashboard-container">
+  <header class="dashboard-header">
+    <div>
+      <h1>Дашборд собственника — BusAuto</h1>
+      <div class="sub" id="sub-info">Реальные данные из oDoo</div>
+    </div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>Источник</label>
+        <select id="filter-source" onchange="dash.applyFilters()"></select>
+      </div>
+      <div class="filter-group">
+        <label>Период</label>
+        <select id="filter-period" onchange="dash.applyFilters()">
+          <option value="30">30 дней</option>
+          <option value="14">14 дней</option>
+          <option value="7">7 дней</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <div id="callouts"></div>
+
+  <section class="kpi-row">
+    <div class="kpi-card good">
+      <div class="kpi-label">Выручка</div>
+      <div class="kpi-value" id="kpi-revenue">—</div>
+      <div class="kpi-change" id="kpi-revenue-change">—</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Заказы</div>
+      <div class="kpi-value" id="kpi-orders">—</div>
+      <div class="kpi-change" id="kpi-orders-change">—</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Средний чек</div>
+      <div class="kpi-value" id="kpi-aov">—</div>
+      <div class="kpi-change" id="kpi-aov-change">—</div>
+    </div>
+    <div class="kpi-card good">
+      <div class="kpi-label">Валовая маржа</div>
+      <div class="kpi-value" id="kpi-margin">—</div>
+      <div class="kpi-change" id="kpi-margin-change">—</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-label">ROAS Google Ads</div>
+      <div class="kpi-value" id="kpi-roas">—</div>
+      <div class="kpi-change" id="kpi-roas-change">—</div>
+    </div>
+    <div class="kpi-card alert">
+      <div class="kpi-label">% отмен / возвратов</div>
+      <div class="kpi-value" id="kpi-returns">—</div>
+      <div class="kpi-change muted" id="kpi-returns-change">—</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">% повторных клиентов</div>
+      <div class="kpi-value" id="kpi-repeat-pct">—</div>
+      <div class="kpi-change muted" id="kpi-repeat-change">—</div>
+    </div>
+    <div class="kpi-card good">
+      <div class="kpi-label">Выручка от повторных</div>
+      <div class="kpi-value" id="kpi-repeat-revenue">—</div>
+      <div class="kpi-change muted" id="kpi-repeat-revenue-change">—</div>
+    </div>
+  </section>
+
+  <section class="chart-row">
+    <div class="chart-container">
+      <h3>Выручка по дням (по источникам)</h3>
+      <canvas id="revenue-trend"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Доля источников</h3>
+      <canvas id="source-share"></canvas>
+    </div>
+  </section>
+
+  <section class="chart-row even">
+    <div class="chart-container">
+      <h3>Выручка и заказы по источникам</h3>
+      <canvas id="source-bars"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>День недели — средняя выручка</h3>
+      <canvas id="dow"></canvas>
+    </div>
+  </section>
+
+  <section class="table-section" id="marketing-section" style="display:none">
+    <h3>Маркетинг — Google Ads</h3>
+    <div id="gads-summary"></div>
+  </section>
+
+  <section class="chart-row even" id="marketing-charts" style="display:none">
+    <div class="chart-container">
+      <h3>Расходы на рекламу по дням</h3>
+      <canvas id="ads-cost-trend"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>ROAS по аккаунтам (Google трекинг)</h3>
+      <canvas id="roas-by-account"></canvas>
+    </div>
+  </section>
+
+  <section class="chart-row even" id="acquisition-section" style="display:none">
+    <div class="chart-container">
+      <h3>Канали залучення клієнтів (first-touch)</h3>
+      <canvas id="acquisition-chart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Нові vs повторні клієнти</h3>
+      <canvas id="cohort-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="table-section" id="prom-section" style="display:none">
+    <h3>Prom UTM — реальные источники заказов с busauto.kh.ua</h3>
+    <div id="prom-summary"></div>
+  </section>
+
+  <section class="kpi-row" id="abc-kpi-row" style="display:none">
+    <div class="kpi-card good">
+      <div class="kpi-label">Класс A — звёзды</div>
+      <div class="kpi-value" id="kpi-abc-a">—</div>
+      <div class="kpi-change" id="kpi-abc-a-change">—</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-label">Класс B — середняки</div>
+      <div class="kpi-value" id="kpi-abc-b">—</div>
+      <div class="kpi-change" id="kpi-abc-b-change">—</div>
+    </div>
+    <div class="kpi-card alert">
+      <div class="kpi-label">Класс C — балласт</div>
+      <div class="kpi-value" id="kpi-abc-c">—</div>
+      <div class="kpi-change" id="kpi-abc-c-change">—</div>
+    </div>
+    <div class="kpi-card alert">
+      <div class="kpi-label">Dead stock</div>
+      <div class="kpi-value" id="kpi-dead-stock">—</div>
+      <div class="kpi-change" id="kpi-dead-stock-change">—</div>
+    </div>
+  </section>
+
+  <section class="chart-row" id="abc-charts" style="display:none">
+    <div class="chart-container">
+      <h3>ABC-анализ — распределение выручки</h3>
+      <canvas id="abc-chart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>SKU vs выручка по классам</h3>
+      <canvas id="abc-bars"></canvas>
+    </div>
+  </section>
+
+  <section class="table-section" id="abc-table-section" style="display:none">
+    <h3>ТОП-50 товаров с ABC-классом и оборачиваемостью</h3>
+    <div style="margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:13px;color:var(--text-secondary)">Фильтр класса:</span>
+      <button class="abc-filter-btn" data-cls="all" onclick="dash.filterAbc('all')" style="padding:4px 12px;border:1px solid var(--c1);background:var(--c1);color:white;border-radius:6px;cursor:pointer;font-size:12px">Все</button>
+      <button class="abc-filter-btn" data-cls="A" onclick="dash.filterAbc('A')" style="padding:4px 12px;border:1px solid #cbd5e1;background:white;border-radius:6px;cursor:pointer;font-size:12px">A — звёзды</button>
+      <button class="abc-filter-btn" data-cls="B" onclick="dash.filterAbc('B')" style="padding:4px 12px;border:1px solid #cbd5e1;background:white;border-radius:6px;cursor:pointer;font-size:12px">B — середняки</button>
+      <button class="abc-filter-btn" data-cls="C" onclick="dash.filterAbc('C')" style="padding:4px 12px;border:1px solid #cbd5e1;background:white;border-radius:6px;cursor:pointer;font-size:12px">C — балласт</button>
+    </div>
+    <div id="abc-products"></div>
+  </section>
+
+  <section class="table-section" id="dead-stock-section" style="display:none">
+    <h3>Dead stock — товары без продаж за период</h3>
+    <div id="dead-stock-list"></div>
+  </section>
+
+  <section class="table-section">
+    <h3>ТОП-25 товаров за период</h3>
+    <div id="top-products"></div>
+  </section>
+
+  <footer class="dashboard-footer">
+    Источник: oDoo XML-RPC API · обновлено: <span id="data-date"></span> · обновить данные: <code>run_full_refresh.bat</code>
+  </footer>
+</div>
+
+<script>
+const SUMMARY = /*__SUMMARY__*/null;
+const GADS = /*__GADS__*/null;
+const COLORS=['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
+const DOW_LABELS=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+
+function fmtUAH(v){if(v>=1e6)return(v/1e6).toFixed(2)+' млн ₴';if(v>=1e3)return(v/1e3).toFixed(1)+' тыс ₴';return Math.round(v).toLocaleString('uk-UA')+' ₴'}
+function fmtNum(v){return Math.round(v).toLocaleString('uk-UA')}
+function fmtPct(v){return v.toFixed(1)+'%'}
+
+class Dashboard{
+  constructor(s){this.summary=s;this.charts={};this.init()}
+  init(){
+    document.getElementById('data-date').textContent=new Date(this.summary.generated_at).toLocaleString('uk-UA');
+    document.getElementById('sub-info').textContent='oDoo · '+this.summary.kpi.orders+' заказов · '+this.summary.daily.length+' дней · '+this.summary.sources.length+' источников';
+    this.populateSourceFilter();
+    this.renderCallouts();
+    this.applyFilters();
+  }
+  populateSourceFilter(){
+    const sel=document.getElementById('filter-source');
+    sel.innerHTML='<option value="__all__">Все источники</option>';
+    this.summary.sources.forEach(s=>{
+      const o=document.createElement('option');
+      o.value=s.source;
+      o.textContent=s.source+' ('+s.orders+')';
+      sel.appendChild(o);
+    });
+  }
+  renderCallouts(){
+    const c=document.getElementById('callouts');
+    c.innerHTML='';
+    const untag=this.summary.sources.find(s=>s.source==='(не вказано)');
+    if(untag){
+      const totalRev=this.summary.kpi.revenue;
+      const pct=(untag.revenue/totalRev*100).toFixed(1);
+      const div=document.createElement('div');
+      div.className='callout danger';
+      div.innerHTML='<strong>Внимание:</strong> '+pct+'% выручки ('+fmtUAH(untag.revenue)+', '+untag.orders+' заказов) идут без проставленного источника. Скорее всего это офлайн-магазин и часть заказов с busauto.ua. Обяжите продавцов проставлять Джерело при создании SO — иначе нельзя посчитать ROI по каналам.';
+      c.appendChild(div);
+    }
+    const allMedNotSet=this.summary.mediums.length===1 && this.summary.mediums[0].medium==='(не вказано)';
+    if(allMedNotSet){
+      const div=document.createElement('div');
+      div.className='callout';
+      div.innerHTML='<strong>Поле «Канал» (medium_id):</strong> не заполняется ни в одном заказе. Это лишает возможности отделить органику от платных каналов. Можно настроить автоматическое заполнение через Automated Actions в oDoo.';
+      c.appendChild(div);
+    }
+  }
+  applyFilters(){
+    const period=parseInt(document.getElementById('filter-period').value);
+    const source=document.getElementById('filter-source').value;
+    const allDates=[...new Set(this.summary.daily.map(d=>d.date))].sort();
+    const cutoffIdx=Math.max(0,allDates.length-period);
+    const dates=allDates.slice(cutoffIdx);
+    const prevDates=allDates.slice(Math.max(0,cutoffIdx-period),cutoffIdx);
+    this.activeDates=new Set(dates);
+    this.prevDates=new Set(prevDates);
+    this.activeSource=source;
+    this.renderKPIs();
+    this.renderCharts();
+    this.renderTable();
+  }
+  filterDaily(dates,source){
+    const isAll=source==='__all__';
+    if(isAll){
+      return this.summary.daily.filter(d=>dates.has(d.date));
+    }
+    return this.summary.daily_by_source
+      .filter(d=>dates.has(d.date) && d.source===source);
+  }
+  renderKPIs(){
+    const cur=this.filterDaily(this.activeDates,this.activeSource);
+    const prev=this.filterDaily(this.prevDates,this.activeSource);
+    const sum=arr=>arr.reduce((a,b)=>a+b.revenue,0);
+    const ord=arr=>arr.reduce((a,b)=>a+b.orders,0);
+    const rev=sum(cur),orders=ord(cur);
+    const prevRev=sum(prev),prevOrders=ord(prev);
+    const aov=orders?rev/orders:0;
+    const prevAov=prevOrders?prevRev/prevOrders:0;
+    const setKPI=(id,val,prevV,fmt)=>{
+      document.getElementById('kpi-'+id).textContent=fmt(val);
+      const ch=document.getElementById('kpi-'+id+'-change');
+      if(prevV>0){
+        const pct=((val-prevV)/prevV)*100;
+        const sign=pct>=0?'+':'';
+        ch.textContent=sign+pct.toFixed(1)+'% к прошлому периоду';
+        ch.className='kpi-change '+(pct>=0?'positive':'negative');
+      }else{ch.textContent='нет данных для сравнения';ch.className='kpi-change muted'}
+    };
+    setKPI('revenue',rev,prevRev,fmtUAH);
+    setKPI('orders',orders,prevOrders,fmtNum);
+    setKPI('aov',aov,prevAov,fmtUAH);
+    // YoY: до тих самих 30 днів торік
+    const yoy=this.summary.yoy_kpi;
+    if(yoy && this.activeSource==='__all__' && parseInt(document.getElementById('filter-period').value)===30){
+      const yChange=yoy.revenue?((this.summary.kpi.revenue/yoy.revenue-1)*100):null;
+      if(yChange!==null){
+        const sign=yChange>=0?'+':'';
+        const cls=yChange>=0?'positive':'negative';
+        const arrow=yChange>=0?'📈':'📉';
+        const ch=document.getElementById('kpi-revenue-change');
+        ch.innerHTML+=`<br><span class="${cls}" style="font-size:11px">${arrow} ${sign}${yChange.toFixed(1)}% к минулого року (${fmtUAH(yoy.revenue)})</span>`;
+      }
+    }
+    document.getElementById('kpi-margin').textContent=this.activeSource==='__all__'?fmtPct(this.summary.kpi.margin_pct):'—';
+    document.getElementById('kpi-margin-change').textContent=this.activeSource==='__all__'?'за весь период (30 дней)':'нужна разбивка по источникам';
+    document.getElementById('kpi-margin-change').className='kpi-change muted';
+    // % отмен / возвратов
+    const cancelPct=this.summary.kpi.cancel_rate_pct||0;
+    const refundPct=this.summary.kpi.refund_rate_pct||0;
+    const cancelCount=this.summary.kpi.cancelled_orders||0;
+    const refundsCount=this.summary.kpi.refunds_count||0;
+    const refundsAmt=this.summary.kpi.refunds_amount||0;
+    document.getElementById('kpi-returns').textContent=fmtPct(cancelPct);
+    const note=this.activeSource==='__all__'
+      ? cancelCount+' отменён · '+refundsCount+' кредит-нот ('+fmtUAH(refundsAmt)+')'
+      : 'нужна разбивка по источникам';
+    document.getElementById('kpi-returns-change').textContent=note;
+    // Cohort: повторні vs нові
+    const cohort=this.summary.cohort;
+    if(cohort){
+      const totalRev=(cohort.new.revenue||0)+(cohort.repeat.revenue||0);
+      const totalCust=(cohort.new.customers||0)+(cohort.repeat.customers||0);
+      const repeatPct=totalCust?(cohort.repeat.customers/totalCust*100):0;
+      document.getElementById('kpi-repeat-pct').textContent=repeatPct.toFixed(1)+'%';
+      document.getElementById('kpi-repeat-change').textContent=cohort.repeat.customers+' з '+totalCust+' клієнтів';
+      document.getElementById('kpi-repeat-revenue').textContent=fmtUAH(cohort.repeat.revenue);
+      document.getElementById('kpi-repeat-revenue-change').textContent=cohort.repeat_revenue_pct.toFixed(1)+'% від виручки';
+    }
+    // Google Ads ROAS
+    if(GADS){
+      const gadsRows=GADS.daily_by_account.filter(r=>this.activeDates.has(r.date));
+      const cost=gadsRows.reduce((a,b)=>a+b.cost,0);
+      const convVal=gadsRows.reduce((a,b)=>a+b.conv_value,0);
+      const roas=cost?convVal/cost:0;
+      document.getElementById('kpi-roas').textContent=roas.toFixed(2)+'x';
+      const ch=document.getElementById('kpi-roas-change');
+      if(roas>=4){ch.textContent='отлично · '+fmtUAH(cost)+' расходов';ch.className='kpi-change positive'}
+      else if(roas>=3){ch.textContent='хорошо · '+fmtUAH(cost)+' расходов';ch.className='kpi-change positive'}
+      else if(roas>=2){ch.textContent='средне · '+fmtUAH(cost)+' расходов';ch.className='kpi-change muted'}
+      else{ch.textContent='низкий · '+fmtUAH(cost)+' расходов';ch.className='kpi-change negative'}
+    }else{
+      document.getElementById('kpi-roas').textContent='—';
+      document.getElementById('kpi-roas-change').textContent='нет данных Google Ads';
+      document.getElementById('kpi-roas-change').className='kpi-change muted';
+    }
+  }
+  renderCharts(){
+    Object.values(this.charts).forEach(c=>c.destroy&&c.destroy());
+    this.renderRevenueTrend();
+    this.renderSourceShare();
+    this.renderSourceBars();
+    this.renderDow();
+    if(GADS){this.renderMarketing()}
+    this.renderAcquisitionAndCohort();
+    this.renderPromUtm();
+    this.renderAbc();
+    this.renderDeadStock();
+  }
+  filterAbc(cls){
+    this.activeAbcCls=cls;
+    document.querySelectorAll('.abc-filter-btn').forEach(b=>{
+      const active=b.dataset.cls===cls;
+      b.style.background=active?'#3b82f6':'white';
+      b.style.color=active?'white':'inherit';
+      b.style.borderColor=active?'#3b82f6':'#cbd5e1';
+    });
+    this.renderAbcTable();
+  }
+  renderAbc(){
+    const abc=this.summary.abc_summary;
+    if(!abc)return;
+    document.getElementById('abc-kpi-row').style.display='';
+    document.getElementById('abc-charts').style.display='';
+    document.getElementById('abc-table-section').style.display='';
+    // KPI
+    document.getElementById('kpi-abc-a').textContent=fmtNum(abc.A.sku_count)+' SKU';
+    document.getElementById('kpi-abc-a-change').textContent=abc.A.rev_pct+'% выручки · '+abc.A.sku_pct+'% ассортимента';
+    document.getElementById('kpi-abc-a-change').className='kpi-change positive';
+    document.getElementById('kpi-abc-b').textContent=fmtNum(abc.B.sku_count)+' SKU';
+    document.getElementById('kpi-abc-b-change').textContent=abc.B.rev_pct+'% выручки · '+abc.B.sku_pct+'% ассортимента';
+    document.getElementById('kpi-abc-b-change').className='kpi-change muted';
+    document.getElementById('kpi-abc-c').textContent=fmtNum(abc.C.sku_count)+' SKU';
+    document.getElementById('kpi-abc-c-change').textContent=abc.C.rev_pct+'% выручки · '+abc.C.sku_pct+'% ассортимента';
+    document.getElementById('kpi-abc-c-change').className='kpi-change negative';
+    // Dead stock KPI
+    const ds=this.summary.dead_stock_total_count||0;
+    const dsv=this.summary.dead_stock_total_value||0;
+    document.getElementById('kpi-dead-stock').textContent=fmtNum(ds)+' SKU';
+    document.getElementById('kpi-dead-stock-change').textContent='заморожено: '+fmtUAH(dsv);
+    document.getElementById('kpi-dead-stock-change').className='kpi-change negative';
+    // Doughnut: выручка по классам
+    if(this.charts.abc)this.charts.abc.destroy();
+    this.charts.abc=new Chart(document.getElementById('abc-chart'),{
+      type:'doughnut',
+      data:{labels:['A — звёзды','B — середняки','C — балласт'],
+        datasets:[{data:[abc.A.revenue,abc.B.revenue,abc.C.revenue],
+          backgroundColor:[COLORS[2]+'CC',COLORS[1]+'CC',COLORS[3]+'CC'],
+          borderColor:'#fff',borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
+        plugins:{legend:{position:'bottom',labels:{usePointStyle:true,padding:12,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);const p=((c.parsed/t)*100).toFixed(1);return c.label+': '+fmtUAH(c.parsed)+' ('+p+'%)'}}}}}
+    });
+    // Bar: SKU vs Revenue
+    if(this.charts.abcBars)this.charts.abcBars.destroy();
+    this.charts.abcBars=new Chart(document.getElementById('abc-bars'),{
+      type:'bar',
+      data:{labels:['A','B','C'],datasets:[
+        {label:'% SKU',data:[abc.A.sku_pct,abc.B.sku_pct,abc.C.sku_pct],
+          backgroundColor:COLORS[0]+'CC',yAxisID:'y',borderRadius:4},
+        {label:'% выручки',data:[abc.A.rev_pct,abc.B.rev_pct,abc.C.rev_pct],
+          backgroundColor:COLORS[2]+'CC',yAxisID:'y',borderRadius:4}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y+'%'}}},
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}}}}
+    });
+    if(!this.activeAbcCls)this.activeAbcCls='all';
+    this.renderAbcTable();
+  }
+  renderAbcTable(){
+    const all=this.summary.abc_products||[];
+    const cls=this.activeAbcCls||'all';
+    const list=cls==='all'?all.slice(0,50):all.filter(p=>p.abc_class===cls).slice(0,50);
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Клас</th><th>Артикул</th><th>Товар</th>'
+      +'<th class="num">Продано</th><th class="num">Виручка</th>'
+      +'<th class="num">% від<br>загального</th><th class="num">Cum. %</th>'
+      +'<th class="num">Залишок</th><th class="num">Оборотність</th></tr></thead><tbody>';
+    list.forEach((p,i)=>{
+      const clsBadge=p.abc_class==='A'?'green':p.abc_class==='B'?'amber':'red';
+      const turn=p.turnover;
+      const turnDisplay=turn===null?'<span style="color:var(--text-secondary)">—</span>'
+        :turn>2?'<span class="badge green">'+turn.toFixed(1)+'x</span>'
+        :turn>0.5?'<span class="badge amber">'+turn.toFixed(1)+'x</span>'
+        :'<span class="badge red">'+turn.toFixed(1)+'x</span>';
+      html+='<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td><span class="badge '+clsBadge+'">'+p.abc_class+'</span></td>'
+        +'<td><span class="code">'+(p.default_code||'—')+'</span></td>'
+        +'<td>'+(p.name||'').substring(0,80)+'</td>'
+        +'<td class="num">'+fmtNum(p.units)+'</td>'
+        +'<td class="num"><b>'+fmtUAH(p.revenue)+'</b></td>'
+        +'<td class="num">'+p.rev_share_pct+'%</td>'
+        +'<td class="num">'+p.cum_rev_pct+'%</td>'
+        +'<td class="num">'+fmtNum(p.qty_available)+'</td>'
+        +'<td class="num">'+turnDisplay+'</td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    html+='<div style="font-size:11px;color:var(--text-secondary);margin-top:8px">'
+      +'<b>Оборотність</b> = продано / залишок. >2x — товар швидко обертається, &lt;0.5x — застій. '
+      +'Cum. % — накопичена частка виручки (граница A=80%, B=95%).</div>';
+    document.getElementById('abc-products').innerHTML=html;
+  }
+  renderDeadStock(){
+    const dead=this.summary.dead_stock||[];
+    if(!dead.length)return;
+    document.getElementById('dead-stock-section').style.display='';
+    const total=this.summary.dead_stock_total_count||0;
+    const totalValue=this.summary.dead_stock_total_value||0;
+    let html='<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">'
+      +'Всього <b>'+total+'</b> товарів на залишку без жодного продажу за останні '+this.summary.period_days+' днів. '
+      +'Заморожена сума: <b style="color:var(--c4)">'+fmtUAH(totalValue)+'</b>. '
+      +'Топ-50 за вартістю замороженого залишку:</p>';
+    html+='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Артикул</th><th>Товар</th>'
+      +'<th class="num">Залишок</th><th class="num">Собівартість</th>'
+      +'<th class="num">Ціна</th><th class="num">Заморожено</th></tr></thead><tbody>';
+    dead.forEach((p,i)=>{
+      html+='<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td><span class="code">'+(p.default_code||'—')+'</span></td>'
+        +'<td>'+(p.name||'').substring(0,80)+'</td>'
+        +'<td class="num">'+fmtNum(p.qty_available)+'</td>'
+        +'<td class="num">'+fmtUAH(p.standard_price)+'</td>'
+        +'<td class="num">'+fmtUAH(p.list_price)+'</td>'
+        +'<td class="num"><b style="color:var(--c4)">'+fmtUAH(p.frozen_value)+'</b></td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    document.getElementById('dead-stock-list').innerHTML=html;
+  }
+  renderAcquisitionAndCohort(){
+    const acq=this.summary.acquisition_sources||[];
+    const cohort=this.summary.cohort;
+    if(!acq.length && !cohort)return;
+    document.getElementById('acquisition-section').style.display='';
+    // Acquisition chart
+    if(this.charts.acq)this.charts.acq.destroy();
+    if(acq.length){
+      this.charts.acq=new Chart(document.getElementById('acquisition-chart'),{
+        type:'bar',
+        data:{labels:acq.map(a=>a.source),datasets:[
+          {label:'Виручка ₴',data:acq.map(a=>a.revenue),backgroundColor:COLORS[0]+'CC',yAxisID:'y',borderRadius:3},
+          {label:'Клієнтів',data:acq.map(a=>a.customers),backgroundColor:COLORS[2]+'CC',yAxisID:'y1',borderRadius:3}
+        ]},
+        options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+          plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+            tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.dataset.label.includes('₴')?fmtUAH(c.parsed.x):fmtNum(c.parsed.x))}}},
+          scales:{x:{beginAtZero:true,position:'top',ticks:{callback:v=>fmtUAH(v)}},
+            x1:{beginAtZero:true,position:'bottom',grid:{display:false}},y:{grid:{display:false}}}}
+      });
+    }
+    // Cohort chart
+    if(cohort && this.charts.coh)this.charts.coh.destroy();
+    if(cohort){
+      this.charts.coh=new Chart(document.getElementById('cohort-chart'),{
+        type:'doughnut',
+        data:{labels:['Нові','Повторні'],
+          datasets:[{data:[cohort.new.revenue,cohort.repeat.revenue],
+            backgroundColor:[COLORS[1]+'CC',COLORS[2]+'CC'],borderColor:'#fff',borderWidth:2}]},
+        options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
+          plugins:{legend:{position:'bottom',labels:{usePointStyle:true,padding:12,font:{size:11}}},
+            tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);const p=((c.parsed/t)*100).toFixed(1);return c.label+': '+fmtUAH(c.parsed)+' ('+p+'%)'}}}}}
+      });
+    }
+  }
+  renderPromUtm(){
+    const ps=this.summary.prom_sources||[];
+    const pc=this.summary.prom_campaigns||[];
+    if(!ps.length)return;
+    document.getElementById('prom-section').style.display='';
+    let html='<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">'
+      +'Заказів з UTM: <b>'+(this.summary.prom_orders_count||0)+'</b>. '
+      +'Поле <code>prom_utm_mark</code> на sale.order містить реальні UTM-мітки з Prom-платформи (busauto.kh.ua).</p>';
+    html+='<h4 style="font-size:13px;margin:12px 0 8px">Розбивка по реальному source:</h4>';
+    html+='<table class="data-table"><thead><tr><th>Source</th><th class="num">Заказів</th><th class="num">Виручка</th></tr></thead><tbody>';
+    ps.forEach(s=>{
+      html+='<tr><td><b>'+s.source+'</b></td><td class="num">'+fmtNum(s.orders)+'</td><td class="num">'+fmtUAH(s.revenue)+'</td></tr>';
+    });
+    html+='</tbody></table>';
+    if(pc.length){
+      html+='<h4 style="font-size:13px;margin:18px 0 8px">ТОП-кампанії:</h4>';
+      html+='<table class="data-table"><thead><tr><th>Кампанія</th><th>Source</th><th>Medium</th><th class="num">Заказів</th><th class="num">Виручка</th></tr></thead><tbody>';
+      pc.forEach(c=>{
+        html+='<tr><td><span class="code">'+c.campaign+'</span></td><td>'+c.source+'</td><td>'+c.medium+'</td>'
+          +'<td class="num">'+fmtNum(c.orders)+'</td><td class="num"><b>'+fmtUAH(c.revenue)+'</b></td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+    document.getElementById('prom-summary').innerHTML=html;
+  }
+  renderMarketing(){
+    document.getElementById('marketing-section').style.display='';
+    document.getElementById('marketing-charts').style.display='';
+    const rows=GADS.daily_by_account.filter(r=>this.activeDates.has(r.date));
+    const byAcc={};
+    GADS.accounts.forEach(a=>byAcc[a.name]={impressions:0,clicks:0,cost:0,conversions:0,conv_value:0,site:a.site,odoo_source:a.odoo_source});
+    rows.forEach(r=>{
+      const a=byAcc[r.account];
+      if(!a)return;
+      a.impressions+=r.impressions;a.clicks+=r.clicks;a.cost+=r.cost;
+      a.conversions+=r.conversions;a.conv_value+=r.conv_value;
+    });
+    // Cross-check with oDoo source revenue
+    const odooRevBySource={};
+    this.summary.daily_by_source.forEach(r=>{
+      if(this.activeDates.has(r.date)){
+        odooRevBySource[r.source]=(odooRevBySource[r.source]||0)+r.revenue;
+      }
+    });
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>Аккаунт</th><th>Сайт</th>'
+      +'<th class="num">Импр.</th><th class="num">Клики</th>'
+      +'<th class="num">Расходы</th><th class="num">Конверсии</th>'
+      +'<th class="num">Ценность<br>(Google)</th><th class="num">ROAS<br>Google</th>'
+      +'<th class="num">Выручка<br>oDoo (источник)</th><th class="num">ROAS<br>oDoo</th>'
+      +'</tr></thead><tbody>';
+    Object.entries(byAcc).forEach(([acc,d])=>{
+      const roasG=d.cost?d.conv_value/d.cost:0;
+      const odooRev=d.odoo_source?(odooRevBySource[d.odoo_source]||0):null;
+      const roasO=odooRev&&d.cost?odooRev/d.cost:null;
+      const ctr=d.clicks/d.impressions*100;
+      const roasClass=v=>v>=4?'green':v>=3?'amber':'red';
+      html+='<tr>'
+        +'<td><b>'+acc+'</b></td>'
+        +'<td>'+d.site+'</td>'
+        +'<td class="num">'+fmtNum(d.impressions)+'</td>'
+        +'<td class="num">'+fmtNum(d.clicks)+' <span style="color:var(--text-secondary);font-size:11px">('+ctr.toFixed(2)+'% CTR)</span></td>'
+        +'<td class="num"><b>'+fmtUAH(d.cost)+'</b></td>'
+        +'<td class="num">'+d.conversions.toFixed(1)+'</td>'
+        +'<td class="num">'+fmtUAH(d.conv_value)+'</td>'
+        +'<td class="num"><span class="badge '+roasClass(roasG)+'">'+roasG.toFixed(2)+'x</span></td>'
+        +'<td class="num">'+(odooRev!==null?fmtUAH(odooRev):'<span style="color:var(--text-secondary)">не размечено</span>')+'</td>'
+        +'<td class="num">'+(roasO!==null?'<span class="badge '+roasClass(roasO)+'">'+roasO.toFixed(2)+'x</span>':'—')+'</td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    html+='<div style="font-size:11px;color:var(--text-secondary);margin-top:8px">ROAS Google — по конверсиям, которые трекает Google Ads. ROAS oDoo — реальная выручка из oDoo по соответствующему source_id, поделённая на расходы. Расхождение = или конверсии в Google не настроены, или часть заказов помечена не тем source_id.</div>';
+    document.getElementById('gads-summary').innerHTML=html;
+
+    // Chart 1: Cost trend
+    const dates=[...this.activeDates].sort();
+    const labels=dates.map(d=>d.slice(5));
+    const accNames=GADS.accounts.map(a=>a.name);
+    const costMap={};
+    accNames.forEach(a=>costMap[a]=Object.fromEntries(dates.map(d=>[d,0])));
+    rows.forEach(r=>{if(costMap[r.account]&&costMap[r.account][r.date]!==undefined)costMap[r.account][r.date]+=r.cost});
+    if(this.charts.adsCost)this.charts.adsCost.destroy();
+    this.charts.adsCost=new Chart(document.getElementById('ads-cost-trend'),{
+      type:'line',
+      data:{labels,datasets:accNames.map((a,i)=>({
+        label:a,data:dates.map(d=>costMap[a][d]),
+        borderColor:COLORS[i+2],backgroundColor:COLORS[i+2]+'20',
+        borderWidth:2,fill:false,tension:.3,pointRadius:2
+      }))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtUAH(c.parsed.y)}}},
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmtUAH(v)}}}}
+    });
+    // Chart 2: ROAS by account
+    const roasData=Object.entries(byAcc).map(([acc,d])=>({acc,roasG:d.cost?d.conv_value/d.cost:0,
+      roasO:(d.odoo_source&&d.cost)?(odooRevBySource[d.odoo_source]||0)/d.cost:0}));
+    if(this.charts.roasAcc)this.charts.roasAcc.destroy();
+    this.charts.roasAcc=new Chart(document.getElementById('roas-by-account'),{
+      type:'bar',
+      data:{labels:roasData.map(r=>r.acc),datasets:[
+        {label:'ROAS Google',data:roasData.map(r=>+r.roasG.toFixed(2)),backgroundColor:COLORS[0]+'CC',borderRadius:3},
+        {label:'ROAS oDoo',data:roasData.map(r=>+r.roasO.toFixed(2)),backgroundColor:COLORS[2]+'CC',borderRadius:3}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y+'x'}}},
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>v+'x'}}}}
+    });
+  }
+  renderRevenueTrend(){
+    const dates=[...this.activeDates].sort();
+    const labels=dates.map(d=>d.slice(5));
+    let datasets;
+    if(this.activeSource==='__all__'){
+      const sources=this.summary.sources.map(s=>s.source);
+      const map={};
+      sources.forEach(s=>map[s]=Object.fromEntries(dates.map(d=>[d,0])));
+      this.summary.daily_by_source.forEach(r=>{
+        if(map[r.source]&&map[r.source][r.date]!==undefined){
+          map[r.source][r.date]+=r.revenue;
+        }
+      });
+      datasets=sources.map((s,i)=>({
+        label:s,
+        data:dates.map(d=>map[s][d]),
+        borderColor:COLORS[i%COLORS.length],
+        backgroundColor:COLORS[i%COLORS.length]+'20',
+        borderWidth:2,fill:false,tension:.3,pointRadius:2,pointHoverRadius:5
+      }));
+    }else{
+      const map=Object.fromEntries(dates.map(d=>[d,0]));
+      this.summary.daily_by_source.forEach(r=>{
+        if(r.source===this.activeSource && map[r.date]!==undefined) map[r.date]+=r.revenue;
+      });
+      datasets=[{label:this.activeSource,data:dates.map(d=>map[d]),
+        borderColor:COLORS[0],backgroundColor:COLORS[0]+'30',
+        borderWidth:2,fill:true,tension:.3,pointRadius:3}];
+    }
+    this.charts.rev=new Chart(document.getElementById('revenue-trend'),{
+      type:'line',
+      data:{labels,datasets},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtUAH(c.parsed.y)}}},
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmtUAH(v)}}}}
+    });
+  }
+  renderSourceShare(){
+    const cur=this.filterDaily(this.activeDates,'__all__');
+    const bySource={};
+    this.summary.daily_by_source.forEach(r=>{
+      if(this.activeDates.has(r.date)){
+        bySource[r.source]=(bySource[r.source]||0)+r.revenue;
+      }
+    });
+    const entries=Object.entries(bySource).sort((a,b)=>b[1]-a[1]);
+    this.charts.share=new Chart(document.getElementById('source-share'),{
+      type:'doughnut',
+      data:{labels:entries.map(e=>e[0]),
+        datasets:[{data:entries.map(e=>e[1]),backgroundColor:COLORS.map(c=>c+'CC'),borderColor:'#fff',borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
+        plugins:{legend:{position:'bottom',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);const p=((c.parsed/t)*100).toFixed(1);return c.label+': '+fmtUAH(c.parsed)+' ('+p+'%)'}}}}}
+    });
+  }
+  renderSourceBars(){
+    const bySource={};
+    const byOrders={};
+    this.summary.daily_by_source.forEach(r=>{
+      if(this.activeDates.has(r.date)){
+        bySource[r.source]=(bySource[r.source]||0)+r.revenue;
+        byOrders[r.source]=(byOrders[r.source]||0)+r.orders;
+      }
+    });
+    const entries=Object.entries(bySource).sort((a,b)=>b[1]-a[1]);
+    const labels=entries.map(e=>e[0]);
+    const rev=entries.map(e=>e[1]);
+    const ord=entries.map(e=>byOrders[e[0]]);
+    this.charts.bars=new Chart(document.getElementById('source-bars'),{
+      type:'bar',
+      data:{labels,datasets:[
+        {label:'Выручка ₴',data:rev,backgroundColor:COLORS[0]+'CC',yAxisID:'y',borderRadius:3},
+        {label:'Заказы',data:ord,backgroundColor:COLORS[1]+'CC',yAxisID:'y1',borderRadius:3}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.dataset.label.includes('₴')?fmtUAH(c.parsed.y):fmtNum(c.parsed.y))}}},
+        scales:{x:{grid:{display:false}},
+          y:{beginAtZero:true,position:'left',ticks:{callback:v=>fmtUAH(v)}},
+          y1:{beginAtZero:true,position:'right',grid:{display:false},ticks:{callback:v=>fmtNum(v)}}}}
+    });
+  }
+  renderDow(){
+    const cur=this.filterDaily(this.activeDates,this.activeSource);
+    const sums=[0,0,0,0,0,0,0],counts=[0,0,0,0,0,0,0];
+    const byDate={};
+    cur.forEach(d=>{byDate[d.date]=(byDate[d.date]||0)+d.revenue});
+    Object.entries(byDate).forEach(([date,rev])=>{
+      const dow=new Date(date).getDay();
+      sums[dow]+=rev;counts[dow]++;
+    });
+    const avg=sums.map((s,i)=>counts[i]?Math.round(s/counts[i]):0);
+    const reorder=[1,2,3,4,5,6,0];
+    const labelsR=reorder.map(i=>DOW_LABELS[i]),avgR=reorder.map(i=>avg[i]);
+    this.charts.dow=new Chart(document.getElementById('dow'),{
+      type:'bar',
+      data:{labels:labelsR,datasets:[{data:avgR,backgroundColor:avgR.map((v,i)=>i>=5?COLORS[3]+'CC':COLORS[2]+'CC'),borderRadius:4}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmtUAH(c.parsed.y)+' (среднее)'}}},
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmtUAH(v)}}}}
+    });
+  }
+  renderTable(){
+    const prods=this.summary.top_products.slice(0,25);
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Артикул</th><th>Товар</th><th>Категория</th>'
+      +'<th class="num">Продано</th><th class="num">Выручка</th><th class="num">Ср. цена</th></tr></thead><tbody>';
+    prods.forEach((p,i)=>{
+      const avgPrice=p.units?p.revenue/p.units:0;
+      html+='<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td><span class="code">'+(p.default_code||'—')+'</span></td>'
+        +'<td>'+p.name+'</td>'
+        +'<td><span style="color:var(--text-secondary);font-size:12px">'+p.category+'</span></td>'
+        +'<td class="num">'+fmtNum(p.units)+'</td>'
+        +'<td class="num"><b>'+fmtUAH(p.revenue)+'</b></td>'
+        +'<td class="num">'+fmtUAH(avgPrice)+'</td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    document.getElementById('top-products').innerHTML=html;
+  }
+}
+
+const dash=new Dashboard(SUMMARY);
+</script>
+</body>
+</html>

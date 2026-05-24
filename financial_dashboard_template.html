@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BusAuto — Фінансовий дашборд (P&amp;L)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
+<style>
+:root{--bg-primary:#f5f6f8;--bg-card:#fff;--bg-header:#3a2a4a;
+  --text-primary:#1a1f2e;--text-secondary:#6c7689;--text-on-dark:#fff;
+  --c1:#3b82f6;--c2:#f59e0b;--c3:#10b981;--c4:#ef4444;--c5:#8b5cf6;--c6:#06b6d4;
+  --positive:#10b981;--negative:#ef4444;--gap:16px;--radius:10px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.5}
+.dashboard-container{max-width:1500px;margin:0 auto;padding:var(--gap)}
+.dashboard-header{background:var(--bg-header);color:var(--text-on-dark);padding:20px 24px;border-radius:var(--radius);margin-bottom:var(--gap);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.dashboard-header h1{font-size:20px;font-weight:600}
+.dashboard-header .sub{font-size:12px;color:rgba(255,255,255,.65);margin-top:4px}
+.nav-bar{display:flex;gap:8px;flex-wrap:wrap}
+.nav-link{font-size:12px;color:rgba(255,255,255,.85);text-decoration:none;padding:6px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;transition:all .15s}
+.nav-link:hover{background:rgba(255,255,255,.1)}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.kpi-card{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:3px solid var(--c1)}
+.kpi-card.warn{border-left-color:var(--c2)}
+.kpi-card.good{border-left-color:var(--c3)}
+.kpi-card.alert{border-left-color:var(--c4)}
+.kpi-card.muted{border-left-color:#cbd5e1}
+.kpi-label{font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
+.kpi-value{font-size:24px;font-weight:700;color:var(--text-primary);margin-bottom:4px}
+.kpi-value.neg{color:var(--c4)}
+.kpi-change{font-size:12px;font-weight:500}
+.kpi-change.positive{color:var(--positive)}
+.kpi-change.negative{color:var(--negative)}
+.kpi-change.muted{color:var(--text-secondary)}
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:var(--gap)}
+.chart-row.full{grid-template-columns:1fr}
+@media (max-width:1000px){.chart-row{grid-template-columns:1fr}}
+.chart-container{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.chart-container h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.chart-container canvas{max-height:320px}
+.table-section{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow-x:auto;margin-bottom:var(--gap)}
+.table-section h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table thead th{text-align:left;padding:10px 12px;border-bottom:2px solid #e9ecef;color:var(--text-secondary);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.data-table tbody td{padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+.data-table tbody tr:hover{background:#f8f9fa}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.code{font-family:'Consolas','Monaco',monospace;font-size:12px;color:var(--text-secondary)}
+.callout{background:#fef3c7;border-left:4px solid var(--c2);padding:12px 16px;border-radius:6px;margin-bottom:var(--gap);font-size:13px}
+.callout strong{color:#92400e}
+.callout.danger{background:#fee2e2;border-left-color:var(--c4)}
+.callout.danger strong{color:#991b1b}
+.callout.success{background:#dcfce7;border-left-color:var(--c3)}
+.callout.success strong{color:#166534}
+.dashboard-footer{font-size:11px;color:var(--text-secondary);text-align:center;padding:8px 0}
+</style>
+</head>
+<body>
+<div class="dashboard-container">
+  <header class="dashboard-header">
+    <div>
+      <h1>Фінансовий дашборд BusAuto</h1>
+      <div class="sub" id="sub-info">Завантаження…</div>
+    </div>
+    <div class="nav-bar">
+      <a href="busauto_owner_dashboard.html" class="nav-link">Оперативний</a>
+      <a href="busauto_warehouse_dashboard.html" class="nav-link">Склад</a>
+    </div>
+  </header>
+
+  <div id="callouts"></div>
+
+  <section class="kpi-row">
+    <div class="kpi-card good">
+      <div class="kpi-label">Виручка (12 міс)</div>
+      <div class="kpi-value" id="kpi-revenue">—</div>
+      <div class="kpi-change muted" id="kpi-revenue-sub">—</div>
+    </div>
+    <div class="kpi-card good">
+      <div class="kpi-label">Валова маржа</div>
+      <div class="kpi-value" id="kpi-gross">—</div>
+      <div class="kpi-change muted" id="kpi-gross-sub">—</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-label">OpEx</div>
+      <div class="kpi-value" id="kpi-opex">—</div>
+      <div class="kpi-change muted" id="kpi-opex-sub">—</div>
+    </div>
+    <div class="kpi-card good">
+      <div class="kpi-label">Прибуток (EBIT)</div>
+      <div class="kpi-value" id="kpi-ebit">—</div>
+      <div class="kpi-change muted" id="kpi-ebit-sub">—</div>
+    </div>
+    <div class="kpi-card good">
+      <div class="kpi-label">Грошова позиція</div>
+      <div class="kpi-value" id="kpi-cash">—</div>
+      <div class="kpi-change muted" id="kpi-cash-sub">сума всіх рахунків</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Дебіторка</div>
+      <div class="kpi-value" id="kpi-recv">—</div>
+      <div class="kpi-change muted">нам винні</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-label">Кредиторка</div>
+      <div class="kpi-value" id="kpi-pay">—</div>
+      <div class="kpi-change muted">ми винні</div>
+    </div>
+    <div class="kpi-card alert">
+      <div class="kpi-label">Робочий капітал</div>
+      <div class="kpi-value" id="kpi-wc">—</div>
+      <div class="kpi-change muted">дебіторка − кредиторка</div>
+    </div>
+  </section>
+
+  <section class="chart-row full">
+    <div class="chart-container">
+      <h3>P&amp;L по місяцях (виручка / витрати / EBIT)</h3>
+      <canvas id="pnl-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="chart-row">
+    <div class="chart-container">
+      <h3>Структура витрат за 12 міс</h3>
+      <canvas id="expense-pie"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Динаміка EBIT % по місяцях</h3>
+      <canvas id="ebit-pct-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="chart-row">
+    <div class="chart-container">
+      <h3>Виручка по ФОПах</h3>
+      <canvas id="fop-chart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Грошова позиція по рахунках</h3>
+      <canvas id="cash-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="table-section">
+    <h3>P&amp;L таблиця по місяцях</h3>
+    <div id="pnl-table"></div>
+  </section>
+
+  <section class="table-section">
+    <h3>ТОП витрат за рахунками</h3>
+    <div id="expense-table"></div>
+  </section>
+
+  <section class="chart-row">
+    <div class="table-section">
+      <h3>ТОП дебіторів (нам винні)</h3>
+      <div id="debtors-table"></div>
+    </div>
+    <div class="table-section">
+      <h3>ТОП кредиторів (ми винні)</h3>
+      <div id="creditors-table"></div>
+    </div>
+  </section>
+
+  <footer class="dashboard-footer">
+    Джерело: oDoo (account.move.line) · оновлено: <span id="data-date"></span>
+  </footer>
+</div>
+
+<script>
+const FIN = /*__FINANCE__*/null;
+const COLORS = ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
+const MONTH_NAMES_UA = ['Січ','Лют','Бер','Кві','Тра','Чер','Лип','Сер','Вер','Жов','Лис','Гру'];
+
+function fmtUAH(v){if(v===null||v===undefined)return'—';const a=Math.abs(v);if(a>=1e6)return(v/1e6).toFixed(2)+' млн ₴';if(a>=1e3)return(v/1e3).toFixed(0)+' тис ₴';return Math.round(v).toLocaleString('uk-UA')+' ₴'}
+function fmtPct(v){if(v===null||v===undefined)return'—';return v.toFixed(1)+'%'}
+function ymToLabel(ym){const[y,m]=ym.split('-');return MONTH_NAMES_UA[parseInt(m)-1]+' '+y.slice(2)}
+
+class FinanceDashboard{
+  constructor(s){this.fin=s;this.charts={};this.init()}
+  init(){
+    if(!this.fin){
+      document.querySelector('.dashboard-container').innerHTML='<div style="padding:40px;text-align:center;color:var(--text-secondary)">Дані фінансів відсутні. Запустіть python finance_export.py</div>';
+      return;
+    }
+    document.getElementById('data-date').textContent=new Date(this.fin.generated_at).toLocaleString('uk-UA');
+    document.getElementById('sub-info').textContent=
+      `Період: ${this.fin.period.start} ... ${this.fin.period.end} · ${this.fin.period.months_back} міс · ${this.fin.fops.length} ФОПів`;
+    this.renderCallouts();
+    this.renderKPIs();
+    this.renderCharts();
+    this.renderTables();
+  }
+  renderCallouts(){
+    const c=document.getElementById('callouts');
+    c.innerHTML='';
+    const tot=this.fin.total_period;
+    // Negative cash accounts
+    if(this.fin.negative_accounts && this.fin.negative_accounts.length){
+      const totalNeg=this.fin.negative_accounts.reduce((s,a)=>s+a.balance,0);
+      const list=this.fin.negative_accounts.map(a=>`<b>${a.account_name}</b> (${fmtUAH(a.balance)})`).join(', ');
+      const div=document.createElement('div');
+      div.className='callout danger';
+      div.innerHTML=`<strong>🚨 Негативні залишки на ${this.fin.negative_accounts.length} рахунках:</strong> ${list}. Сумарно ${fmtUAH(totalNeg)}. Перевірити причини (можливо помилка з імпорту попередньої версії).`;
+      c.appendChild(div);
+    }
+    // Working capital
+    if(this.fin.working_capital_gap < -100000){
+      const div=document.createElement('div');
+      div.className='callout';
+      div.innerHTML=`<strong>⚠ Розрив робочого капіталу:</strong> ${fmtUAH(this.fin.working_capital_gap)} (ми винні більше, ніж нам). Стежте за касовими розривами.`;
+      c.appendChild(div);
+    }
+    // Margin OK
+    const margin = tot.gross_margin / tot.revenue * 100;
+    if(margin >= 30){
+      const div=document.createElement('div');
+      div.className='callout success';
+      div.innerHTML=`<strong>✅ Маржинальність здорова:</strong> ${margin.toFixed(1)}% валової маржі за рік. EBIT ${(tot.ebit/tot.revenue*100).toFixed(1)}% — для retail e-commerce це добре.`;
+      c.appendChild(div);
+    }
+  }
+  renderKPIs(){
+    const tot=this.fin.total_period;
+    const cur=this.fin.current_month;
+    document.getElementById('kpi-revenue').textContent=fmtUAH(tot.revenue);
+    document.getElementById('kpi-revenue-sub').textContent=`поточн.міс: ${fmtUAH(cur?cur.revenue:0)}`;
+    document.getElementById('kpi-gross').textContent=fmtUAH(tot.gross_margin);
+    document.getElementById('kpi-gross-sub').textContent=`${(tot.gross_margin/tot.revenue*100).toFixed(1)}% від виручки`;
+    document.getElementById('kpi-opex').textContent=fmtUAH(tot.opex);
+    document.getElementById('kpi-opex-sub').textContent=`${(tot.opex/tot.revenue*100).toFixed(1)}% від виручки`;
+    document.getElementById('kpi-ebit').textContent=fmtUAH(tot.ebit);
+    document.getElementById('kpi-ebit-sub').textContent=`${(tot.ebit/tot.revenue*100).toFixed(1)}% маржа · поточн.міс: ${fmtUAH(cur?cur.ebit:0)}`;
+    document.getElementById('kpi-cash').textContent=fmtUAH(this.fin.total_cash);
+    document.getElementById('kpi-recv').textContent=fmtUAH(this.fin.receivables_total);
+    document.getElementById('kpi-pay').textContent=fmtUAH(this.fin.payables_total);
+    const wc=document.getElementById('kpi-wc');
+    wc.textContent=fmtUAH(this.fin.working_capital_gap);
+    if(this.fin.working_capital_gap < 0)wc.classList.add('neg');
+  }
+  renderCharts(){
+    const m=this.fin.monthly_pnl;
+    const labels=m.map(x=>ymToLabel(x.month));
+    // P&L stacked
+    if(this.charts.pnl)this.charts.pnl.destroy();
+    this.charts.pnl=new Chart(document.getElementById('pnl-chart'),{
+      type:'bar',
+      data:{labels,datasets:[
+        {label:'COGS',data:m.map(x=>x.cogs),backgroundColor:COLORS[3]+'AA',stack:'cost',order:2},
+        {label:'OpEx',data:m.map(x=>x.opex),backgroundColor:COLORS[1]+'AA',stack:'cost',order:2},
+        {label:'EBIT',data:m.map(x=>x.ebit),backgroundColor:COLORS[2]+'CC',stack:'cost',order:2},
+        {label:'Виручка',data:m.map(x=>x.revenue),type:'line',borderColor:COLORS[0],backgroundColor:COLORS[0]+'30',borderWidth:3,tension:.2,pointRadius:4,fill:false,order:1}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtUAH(c.parsed.y)}}},
+        scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,beginAtZero:true,ticks:{callback:v=>fmtUAH(v)}}}}
+    });
+    // EBIT %
+    if(this.charts.ebit)this.charts.ebit.destroy();
+    this.charts.ebit=new Chart(document.getElementById('ebit-pct-chart'),{
+      type:'line',
+      data:{labels,datasets:[
+        {label:'EBIT %',data:m.map(x=>x.ebit_pct),borderColor:COLORS[2],backgroundColor:COLORS[2]+'30',borderWidth:2,fill:true,tension:.3,pointRadius:3},
+        {label:'Валова маржа %',data:m.map(x=>x.gross_margin_pct),borderColor:COLORS[0],backgroundColor:COLORS[0]+'20',borderWidth:2,fill:false,tension:.3,pointRadius:3,borderDash:[5,5]}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y.toFixed(1)+'%'}}},
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>v+'%'}}}}
+    });
+    // Expense pie
+    const cats=this.fin.expense_categories||[];
+    if(this.charts.pie)this.charts.pie.destroy();
+    this.charts.pie=new Chart(document.getElementById('expense-pie'),{
+      type:'doughnut',
+      data:{labels:cats.map(c=>c.category),
+        datasets:[{data:cats.map(c=>c.amount),
+          backgroundColor:[COLORS[3]+'CC',COLORS[1]+'CC',COLORS[5]+'CC',COLORS[4]+'CC'],
+          borderColor:'#fff',borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
+        plugins:{legend:{position:'bottom',labels:{usePointStyle:true,padding:12,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);const p=t?((c.parsed/t)*100).toFixed(1):0;return c.label+': '+fmtUAH(c.parsed)+' ('+p+'%)'}}}}}
+    });
+    // FOP stacked
+    const fops=this.fin.fops||[];
+    if(this.charts.fop)this.charts.fop.destroy();
+    this.charts.fop=new Chart(document.getElementById('fop-chart'),{
+      type:'bar',
+      data:{labels:fops.map(f=>f.fop.replace('ФОП ','').substring(0,25)),
+        datasets:[
+          {label:'Виручка',data:fops.map(f=>f.revenue),backgroundColor:COLORS[0]+'CC',borderRadius:4},
+          {label:'EBIT',data:fops.map(f=>f.ebit_est),backgroundColor:COLORS[2]+'CC',borderRadius:4}
+        ]},
+      options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+        plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:10,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtUAH(c.parsed.x)}}},
+        scales:{x:{beginAtZero:true,ticks:{callback:v=>fmtUAH(v)}},y:{grid:{display:false}}}}
+    });
+    // Cash position
+    const cash=this.fin.cash_balances.filter(c=>Math.abs(c.balance)>100);
+    if(this.charts.cash)this.charts.cash.destroy();
+    this.charts.cash=new Chart(document.getElementById('cash-chart'),{
+      type:'bar',
+      data:{labels:cash.map(c=>c.account_name.replace('Р/Счет','').replace(/[\"]/g,'').substring(0,25)),
+        datasets:[{data:cash.map(c=>c.balance),
+          backgroundColor:cash.map(c=>c.is_negative?COLORS[3]+'CC':COLORS[2]+'CC'),borderRadius:4}]},
+      options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+        plugins:{legend:{display:false},
+          tooltip:{callbacks:{label:c=>fmtUAH(c.parsed.x)}}},
+        scales:{x:{beginAtZero:false,ticks:{callback:v=>fmtUAH(v)}},y:{grid:{display:false}}}}
+    });
+  }
+  renderTables(){
+    // P&L таблиця
+    const m=this.fin.monthly_pnl;
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>Місяць</th><th class="num">Виручка</th><th class="num">COGS</th>'
+      +'<th class="num">Вал.маржа</th><th class="num">Вал.маржа %</th>'
+      +'<th class="num">Адмін</th><th class="num">Збут</th><th class="num">Інші</th>'
+      +'<th class="num">OpEx</th><th class="num">EBIT</th><th class="num">EBIT %</th>'
+      +'</tr></thead><tbody>';
+    m.forEach(r=>{
+      const ebitClass=r.ebit_pct<5?'red':r.ebit_pct<10?'amber':'green';
+      const ebitStyle=r.ebit_pct<5?'color:var(--c4)':r.ebit_pct<10?'color:var(--c2)':'color:var(--c3)';
+      html+=`<tr>
+        <td><b>${ymToLabel(r.month)}</b></td>
+        <td class="num">${fmtUAH(r.revenue)}</td>
+        <td class="num">${fmtUAH(r.cogs)}</td>
+        <td class="num"><b>${fmtUAH(r.gross_margin)}</b></td>
+        <td class="num">${r.gross_margin_pct.toFixed(1)}%</td>
+        <td class="num">${fmtUAH(r.admin)}</td>
+        <td class="num">${fmtUAH(r.selling)}</td>
+        <td class="num">${fmtUAH(r.other_exp)}</td>
+        <td class="num">${fmtUAH(r.opex)}</td>
+        <td class="num"><b style="${ebitStyle}">${fmtUAH(r.ebit)}</b></td>
+        <td class="num"><b style="${ebitStyle}">${r.ebit_pct.toFixed(1)}%</b></td>
+      </tr>`;
+    });
+    html+='</tbody></table>';
+    document.getElementById('pnl-table').innerHTML=html;
+    // Expenses
+    const exp=this.fin.expense_breakdown||[];
+    let html2='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Код</th><th>Назва рахунку</th><th>Категорія</th>'
+      +'<th class="num">Сума за 12 міс</th><th class="num">Середня/міс</th><th class="num">% від виручки</th>'
+      +'</tr></thead><tbody>';
+    const totRev=this.fin.total_period.revenue;
+    exp.forEach((e,i)=>{
+      const monthly=e.amount/this.fin.period.months_back;
+      const pctRev=totRev?(e.amount/totRev*100):0;
+      html2+=`<tr>
+        <td>${i+1}</td>
+        <td><span class="code">${e.account_code}</span></td>
+        <td>${e.account_name}</td>
+        <td><span style="font-size:12px;color:var(--text-secondary)">${e.category}</span></td>
+        <td class="num"><b>${fmtUAH(e.amount)}</b></td>
+        <td class="num">${fmtUAH(monthly)}</td>
+        <td class="num">${pctRev.toFixed(2)}%</td>
+      </tr>`;
+    });
+    html2+='</tbody></table>';
+    document.getElementById('expense-table').innerHTML=html2;
+    // Debtors
+    const debtors=this.fin.top_debtors||[];
+    document.getElementById('debtors-table').innerHTML=this.partnerTable(debtors,'debtor');
+    // Creditors
+    const creditors=this.fin.top_creditors||[];
+    document.getElementById('creditors-table').innerHTML=this.partnerTable(creditors,'creditor');
+  }
+  partnerTable(rows,type){
+    if(!rows.length)return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Немає даних</div>';
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Контрагент</th><th class="num">Баланс</th></tr></thead><tbody>';
+    rows.slice(0,20).forEach((r,i)=>{
+      const negative=r.balance<0;
+      const style=negative?'color:var(--c4)':type==='creditor'?'color:var(--c2)':'color:var(--c3)';
+      html+=`<tr>
+        <td>${i+1}</td>
+        <td>${r.partner_name||'?'}</td>
+        <td class="num"><b style="${style}">${fmtUAH(r.balance)}</b></td>
+      </tr>`;
+    });
+    html+='</tbody></table>';
+    return html;
+  }
+}
+
+const dash = new FinanceDashboard(FIN);
+</script>
+</body>
+</html>

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BusAuto — Склад Шевченко (ABC + Stock)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
+<style>
+:root{--bg-primary:#f5f6f8;--bg-card:#fff;--bg-header:#1a3a4a;
+  --text-primary:#1a1f2e;--text-secondary:#6c7689;--text-on-dark:#fff;
+  --c1:#3b82f6;--c2:#f59e0b;--c3:#10b981;--c4:#ef4444;--c5:#8b5cf6;--c6:#06b6d4;
+  --positive:#10b981;--negative:#ef4444;--gap:16px;--radius:10px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.5}
+.dashboard-container{max-width:1500px;margin:0 auto;padding:var(--gap)}
+.dashboard-header{background:var(--bg-header);color:var(--text-on-dark);padding:20px 24px;border-radius:var(--radius);margin-bottom:var(--gap);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.dashboard-header h1{font-size:20px;font-weight:600}
+.dashboard-header .sub{font-size:12px;color:rgba(255,255,255,.65);margin-top:4px}
+.nav-link{font-size:12px;color:rgba(255,255,255,.85);text-decoration:none;padding:6px 12px;border:1px solid rgba(255,255,255,.3);border-radius:6px;transition:all .15s}
+.nav-link:hover{background:rgba(255,255,255,.1)}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.kpi-card{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:3px solid var(--c1)}
+.kpi-card.warn{border-left-color:var(--c2)}
+.kpi-card.good{border-left-color:var(--c3)}
+.kpi-card.alert{border-left-color:var(--c4)}
+.kpi-card.muted{border-left-color:#cbd5e1;opacity:.85}
+.kpi-label{font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
+.kpi-value{font-size:26px;font-weight:700;color:var(--text-primary);margin-bottom:4px}
+.kpi-change{font-size:12px;font-weight:500}
+.kpi-change.positive{color:var(--positive)}
+.kpi-change.negative{color:var(--negative)}
+.kpi-change.muted{color:var(--text-secondary);font-style:italic}
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:var(--gap)}
+@media (max-width:1000px){.chart-row{grid-template-columns:1fr}}
+.chart-container{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.chart-container h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.chart-container canvas{max-height:280px}
+.table-section{background:var(--bg-card);border-radius:var(--radius);padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow-x:auto;margin-bottom:var(--gap)}
+.table-section h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.table-section h3 .count{font-size:12px;color:var(--text-secondary);font-weight:400;margin-left:8px}
+.data-table{width:100%;border-collapse:collapse;font-size:13px}
+.data-table thead th{text-align:left;padding:10px 12px;border-bottom:2px solid #e9ecef;color:var(--text-secondary);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.data-table tbody td{padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+.data-table tbody tr:hover{background:#f8f9fa}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.code{font-family:'Consolas','Monaco',monospace;font-size:12px;color:var(--text-secondary)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge.green{background:#dcfce7;color:#166534}
+.badge.amber{background:#fef3c7;color:#92400e}
+.badge.red{background:#fee2e2;color:#991b1b}
+.badge.gray{background:#e5e7eb;color:#374151}
+.callout{background:#fef3c7;border-left:4px solid var(--c2);padding:12px 16px;border-radius:6px;margin-bottom:var(--gap);font-size:13px}
+.callout strong{color:#92400e}
+.callout.danger{background:#fee2e2;border-left-color:var(--c4)}
+.callout.danger strong{color:#991b1b}
+.callout.success{background:#dcfce7;border-left-color:var(--c3)}
+.callout.success strong{color:#166534}
+.filter-bar{margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.filter-btn{padding:5px 12px;border:1px solid #cbd5e1;background:white;border-radius:6px;cursor:pointer;font-size:12px;transition:all .15s}
+.filter-btn:hover{border-color:var(--c1)}
+.filter-btn.active{background:var(--c1);color:white;border-color:var(--c1)}
+.dashboard-footer{font-size:11px;color:var(--text-secondary);text-align:center;padding:8px 0}
+.no-data{text-align:center;padding:40px;color:var(--text-secondary)}
+</style>
+</head>
+<body>
+<div class="dashboard-container">
+  <header class="dashboard-header">
+    <div>
+      <h1 id="header-title">Склад Шевченко — ABC + управление запасами</h1>
+      <div class="sub" id="sub-info">Загрузка...</div>
+    </div>
+    <a href="busauto_owner_dashboard.html" class="nav-link">← К общему дашборду</a>
+  </header>
+
+  <div id="callouts"></div>
+
+  <section class="kpi-row" id="kpi-row">
+    <div class="kpi-card good">
+      <div class="kpi-label">SKU в наличии</div>
+      <div class="kpi-value" id="kpi-sku">—</div>
+      <div class="kpi-change muted" id="kpi-sku-change">—</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-label">Стоимость остатка</div>
+      <div class="kpi-value" id="kpi-stock-value">—</div>
+      <div class="kpi-change muted" id="kpi-stock-value-change">—</div>
+    </div>
+    <div class="kpi-card alert">
+      <div class="kpi-label">A-class — заканчиваются</div>
+      <div class="kpi-value" id="kpi-a-low">—</div>
+      <div class="kpi-change negative" id="kpi-a-low-change">SKU с запасом &lt;14 дней</div>
+    </div>
+    <div class="kpi-card alert">
+      <div class="kpi-label">C-class — затоварены</div>
+      <div class="kpi-value" id="kpi-c-over">—</div>
+      <div class="kpi-change negative" id="kpi-c-over-change">SKU с запасом &gt;90 дней</div>
+    </div>
+    <div class="kpi-card alert">
+      <div class="kpi-label">Без продаж за период</div>
+      <div class="kpi-value" id="kpi-no-sales">—</div>
+      <div class="kpi-change negative" id="kpi-no-sales-change">—</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-label">Рекоменд. закупка</div>
+      <div class="kpi-value" id="kpi-order-budget">—</div>
+      <div class="kpi-change muted" id="kpi-order-budget-change">всего SKU к заказу</div>
+    </div>
+  </section>
+
+  <section class="chart-row">
+    <div class="chart-container">
+      <h3>Распределение выручки по классам</h3>
+      <canvas id="abc-rev-chart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Стоимость остатков по классам</h3>
+      <canvas id="abc-stock-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="table-section">
+    <h3>⚠ A-class с низким запасом <span class="count" id="alert-a-count"></span></h3>
+    <div id="alert-a-content"></div>
+  </section>
+
+  <section class="table-section">
+    <h3>⚠ C-class затоваренные <span class="count" id="alert-c-count"></span></h3>
+    <div id="alert-c-content"></div>
+  </section>
+
+  <section class="table-section">
+    <h3>💀 Товары без продаж за период (заморожен капитал) <span class="count" id="alert-ns-count"></span></h3>
+    <div id="alert-ns-content"></div>
+  </section>
+
+  <section class="table-section" id="stuck-section" style="display:none">
+    <h3>🚨 Підвислі pickings (стоят &gt;7 днів) <span class="count" id="alert-stuck-count"></span></h3>
+    <div id="alert-stuck-content"></div>
+  </section>
+
+  <section class="table-section">
+    <h3>Все товары на складе с ABC-классом</h3>
+    <div class="filter-bar">
+      <span style="font-size:13px;color:var(--text-secondary)">Фильтр:</span>
+      <button class="filter-btn active" data-cls="all" onclick="dash.filterAbc('all')">Все</button>
+      <button class="filter-btn" data-cls="A" onclick="dash.filterAbc('A')">A — звёзды</button>
+      <button class="filter-btn" data-cls="B" onclick="dash.filterAbc('B')">B — середняки</button>
+      <button class="filter-btn" data-cls="C" onclick="dash.filterAbc('C')">C — балласт</button>
+    </div>
+    <div id="abc-products"></div>
+  </section>
+
+  <footer class="dashboard-footer">
+    Источник: oDoo XML-RPC API · обновлено: <span id="data-date"></span>
+  </footer>
+</div>
+
+<script>
+const SUMMARY = /*__SUMMARY__*/null;
+const COLORS = ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4'];
+
+function fmtUAH(v){if(v>=1e6)return(v/1e6).toFixed(2)+' млн ₴';if(v>=1e3)return(v/1e3).toFixed(1)+' тыс ₴';return Math.round(v).toLocaleString('uk-UA')+' ₴'}
+function fmtNum(v){return Math.round(v).toLocaleString('uk-UA')}
+
+class WarehouseDashboard{
+  constructor(s){
+    this.summary=s;
+    this.charts={};
+    this.activeAbcCls='all';
+    this.init();
+  }
+  init(){
+    document.getElementById('data-date').textContent=new Date(this.summary.generated_at).toLocaleString('uk-UA');
+    const wh=this.summary.warehouse_abc;
+    if(!wh){
+      document.querySelector('.dashboard-container').innerHTML='<div class="no-data">Дані по складу відсутні. Перевірте, що в odoo_export.py warehouse знайдено і qty_available виcтавлений.</div>';
+      return;
+    }
+    document.getElementById('header-title').textContent=`Склад ${wh.warehouse_name} — ABC + управление запасами`;
+    document.getElementById('sub-info').textContent=`${wh.total_sku} SKU · стоимость остатка ${fmtUAH(wh.total_stock_value)}`;
+    this.renderCallouts();
+    this.renderKPIs();
+    this.renderCharts();
+    this.renderAlerts();
+    this.renderAbcTable();
+  }
+  renderCallouts(){
+    const wh=this.summary.warehouse_abc;
+    const a=wh.alerts;
+    const c=document.getElementById('callouts');
+    c.innerHTML='';
+    if(a.no_sales_count > 0){
+      const pct=(a.no_sales_value / wh.total_stock_value * 100).toFixed(1);
+      const div=document.createElement('div');
+      div.className='callout danger';
+      div.innerHTML=`<strong>Заморожено:</strong> ${a.no_sales_count} SKU без жодного продажу за ${this.summary.period_days} днів — це <b>${fmtUAH(a.no_sales_value)}</b> (${pct}% від загальної вартості залишку). Це капітал, який не працює.`;
+      c.appendChild(div);
+    }
+    if(a.a_low_stock.length > 0){
+      const div=document.createElement('div');
+      div.className='callout';
+      div.innerHTML=`<strong>Терміновий дозамовлення:</strong> ${a.a_low_stock.length} A-class товарів закінчаться менше ніж за 14 днів. Список нижче.`;
+      c.appendChild(div);
+    }
+    if(a.c_overstock.length > 0){
+      const div=document.createElement('div');
+      div.className='callout';
+      div.innerHTML=`<strong>Затоварення:</strong> ${a.c_overstock.length} C-class товарів мають запас на більш ніж 90 днів. Кандидати на знижку чи розпродаж.`;
+      c.appendChild(div);
+    }
+  }
+  renderKPIs(){
+    const wh=this.summary.warehouse_abc;
+    document.getElementById('kpi-sku').textContent=fmtNum(wh.total_sku);
+    document.getElementById('kpi-sku-change').textContent='A: '+wh.A.sku_count+' · B: '+wh.B.sku_count+' · C: '+wh.C.sku_count;
+    document.getElementById('kpi-stock-value').textContent=fmtUAH(wh.total_stock_value);
+    document.getElementById('kpi-stock-value-change').textContent='за себестоимостью';
+    document.getElementById('kpi-a-low').textContent=fmtNum(wh.alerts.a_low_stock.length);
+    document.getElementById('kpi-c-over').textContent=fmtNum(wh.alerts.c_overstock.length);
+    document.getElementById('kpi-no-sales').textContent=fmtNum(wh.alerts.no_sales_count);
+    document.getElementById('kpi-no-sales-change').textContent='заморожено: '+fmtUAH(wh.alerts.no_sales_value);
+    // Сума рекомендованих закупок (за всіма товарами, де suggested>0)
+    const allProducts=wh.products||[];
+    const toOrder=allProducts.filter(p=>(p.suggested_order_qty||0)>0);
+    const totalOrderValue=toOrder.reduce((s,p)=>s+(p.suggested_order_value||0),0);
+    document.getElementById('kpi-order-budget').textContent=fmtUAH(totalOrderValue);
+    document.getElementById('kpi-order-budget-change').textContent=toOrder.length+' SKU потребують замовлення';
+    // Callout for stuck pickings (top of page)
+    const sp=wh.alerts.stuck_pickings||[];
+    if(sp.length){
+      const c=document.getElementById('callouts');
+      const div=document.createElement('div');
+      div.className='callout danger';
+      div.innerHTML=`<strong>🚨 Підвислі pickings:</strong> ${sp.length} документів старіше 7 днів не валідовано (IN: ${wh.alerts.stuck_in_count||0}, OUT: ${wh.alerts.stuck_out_count||0}). Поки не натиснете <b>Validate</b> в oDoo — залишки/incoming показуватимуть застарілі дані. Список нижче.`;
+      c.appendChild(div);
+    }
+  }
+  renderCharts(){
+    const wh=this.summary.warehouse_abc;
+    Object.values(this.charts).forEach(c=>c.destroy&&c.destroy());
+    // Revenue by class
+    this.charts.rev=new Chart(document.getElementById('abc-rev-chart'),{
+      type:'doughnut',
+      data:{labels:['A — звёзды','B — середняки','C — балласт'],
+        datasets:[{data:[wh.A.revenue,wh.B.revenue,wh.C.revenue],
+          backgroundColor:[COLORS[2]+'CC',COLORS[1]+'CC',COLORS[3]+'CC'],
+          borderColor:'#fff',borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'58%',
+        plugins:{legend:{position:'bottom',labels:{usePointStyle:true,padding:12,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);const p=t?((c.parsed/t)*100).toFixed(1):0;return c.label+': '+fmtUAH(c.parsed)+' ('+p+'%)'}}}}}
+    });
+    // Stock value by class
+    this.charts.stock=new Chart(document.getElementById('abc-stock-chart'),{
+      type:'bar',
+      data:{labels:['A','B','C'],datasets:[
+        {label:'Стоимость остатка ₴',data:[wh.A.stock_value,wh.B.stock_value,wh.C.stock_value],
+          backgroundColor:[COLORS[2]+'CC',COLORS[1]+'CC',COLORS[3]+'CC'],borderRadius:4}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},
+          tooltip:{callbacks:{label:c=>fmtUAH(c.parsed.y)}}},
+        scales:{x:{grid:{display:false}},y:{beginAtZero:true,ticks:{callback:v=>fmtUAH(v)}}}}
+    });
+  }
+  renderAlerts(){
+    const wh=this.summary.warehouse_abc;
+    const a=wh.alerts;
+    document.getElementById('alert-a-count').textContent=`(${a.a_low_stock.length} SKU)`;
+    document.getElementById('alert-a-content').innerHTML=this.alertTable(a.a_low_stock,
+      ['#','Артикул','Товар','Залишок','Очікується','Прод. за період','Дн. на день','Залишилось днів','Приоритет','Замовити, шт','Сума замовлення']);
+    document.getElementById('alert-c-count').textContent=`(${a.c_overstock.length} SKU)`;
+    document.getElementById('alert-c-content').innerHTML=this.alertTable(a.c_overstock,
+      ['#','Артикул','Товар','Залишок','Прод. за період','Залишилось днів','Заморожено ₴']);
+    document.getElementById('alert-ns-count').textContent=`(${a.no_sales_top.length}/${a.no_sales_count} SKU)`;
+    document.getElementById('alert-ns-content').innerHTML=this.deadTable(a.no_sales_top);
+    // Stuck pickings
+    const sp=a.stuck_pickings||[];
+    if(sp.length){
+      document.getElementById('stuck-section').style.display='';
+      document.getElementById('alert-stuck-count').textContent=
+        `(${sp.length} pickings · IN: ${a.stuck_in_count||0}, OUT: ${a.stuck_out_count||0})`;
+      document.getElementById('alert-stuck-content').innerHTML=this.stuckTable(sp);
+    }
+  }
+  stuckTable(rows){
+    if(!rows.length)return '<div class="no-data" style="padding:20px">Все pickings актуальні</div>';
+    let html='<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">'
+      +'Це документи приходу/відвантаження, які створені, частково оброблені, але <b>не валідовані</b>. '
+      +'Товар може бути фізично на складі (або вже відвантажений), але oDoo цього не знає. '
+      +'Як наслідок — incoming_qty/outgoing_qty показують застарілі цифри.</p>';
+    html+='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Picking</th><th>Тип</th><th>Стан</th>'
+      +'<th>Контрагент</th><th>Origin</th>'
+      +'<th class="num">К-сть</th><th class="num">Товари</th>'
+      +'<th class="num">Дата планована</th><th class="num">Висить днів</th></tr></thead><tbody>';
+    rows.forEach((p,i)=>{
+      const dsClass=p.days_stuck===null?'gray':p.days_stuck>30?'red':p.days_stuck>14?'amber':'amber';
+      const typeIcon=p.type_code==='incoming'?'📥 IN':p.type_code==='outgoing'?'📤 OUT':p.type_code==='internal'?'🔄 INT':p.type_code;
+      const stateBadge=p.state==='assigned'?'<span class="badge amber">Готово до валідації</span>'
+        :p.state==='waiting'?'<span class="badge red">Очікує</span>'
+        :p.state==='confirmed'?'<span class="badge gray">Підтверджено</span>'
+        :p.state==='partially_available'?'<span class="badge amber">Частково</span>':p.state;
+      const products=p.products_top.map(pr=>(pr.product_name||'').substring(0,40)+' ('+fmtNum(pr.qty)+')').join('<br>');
+      const moreCount=p.products_count>p.products_top.length?'<br><span style="color:var(--text-secondary);font-size:11px">+ ще '+(p.products_count-p.products_top.length)+' позицій</span>':'';
+      const sched=p.scheduled_date?new Date(p.scheduled_date.replace(' ','T')).toLocaleDateString('uk-UA'):'—';
+      html+='<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td><b>'+p.name+'</b></td>'
+        +'<td>'+typeIcon+'</td>'
+        +'<td>'+stateBadge+'</td>'
+        +'<td style="font-size:12px">'+(p.partner||'—').substring(0,30)+'</td>'
+        +'<td style="font-size:12px;color:var(--text-secondary)">'+(p.origin||'—').substring(0,20)+'</td>'
+        +'<td class="num">'+fmtNum(p.total_qty)+'</td>'
+        +'<td style="font-size:12px">'+products+moreCount+'</td>'
+        +'<td class="num">'+sched+'</td>'
+        +'<td class="num"><span class="badge '+dsClass+'">'+(p.days_stuck||0)+' дн</span></td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    html+='<div style="font-size:11px;color:var(--text-secondary);margin-top:12px;padding:10px;background:#fef3c7;border-radius:6px">'
+      +'<b>Що робити:</b> відкрити кожен picking в oDoo (Inventory → Operations → All Operations) і натиснути <b>«Validate»</b>. '
+      +'Після цього: для IN — товар з\'явиться на залишку; для OUT — спишеться зі залишку.</div>';
+    return html;
+  }
+  alertTable(rows,cols){
+    if(!rows.length)return '<div class="no-data" style="padding:20px">Все добре — немає товарів у цій категорії</div>';
+    let html='<table class="data-table"><thead><tr>';
+    cols.forEach(c=>html+='<th>'+c+'</th>');
+    html+='</tr></thead><tbody>';
+    const isAlow=cols.includes('Приоритет');
+    rows.forEach((p,i)=>{
+      const dl=p.days_left;
+      const dlv=p.days_left_virtual;
+      const dlvClass=dlv===null?'gray':dlv<7?'red':dlv<14?'amber':dlv>90?'red':'green';
+      html+='<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td><span class="code">'+(p.default_code||'—')+'</span></td>'
+        +'<td>'+(p.name||'').substring(0,80)+'</td>'
+        +'<td class="num">'+fmtNum(p.qty_available)+'</td>';
+      if(isAlow){
+        // Колонка "Очікується" — показуємо incoming + дату
+        let incCell;
+        if(p.incoming_qty>0){
+          const ad=p.next_arrival_date?new Date(p.next_arrival_date).toLocaleDateString('uk-UA'):'';
+          incCell='<span style="color:var(--c3);font-weight:600">+'+fmtNum(p.incoming_qty)+'</span>';
+          if(ad)incCell+='<br><span style="font-size:10px;color:var(--text-secondary)">'+ad+'</span>';
+        } else {incCell='—';}
+        html+='<td class="num">'+incCell+'</td>';
+        html+='<td class="num">'+fmtNum(p.units_sold)+'</td>';
+        html+='<td class="num">'+(p.daily_sold?p.daily_sold.toFixed(2):'—')+'</td>';
+        html+='<td class="num"><span class="badge '+dlvClass+'">'+(dlv===null?'—':dlv+' дн')+'</span></td>';
+        // Приоритет на основі days_left_virtual (з урахуванням incoming)
+        const prio=dlv===null?'<span class="badge gray">—</span>'
+          :dlv<7?'<span class="badge red">КРИТИЧНО</span>'
+          :dlv<14?'<span class="badge amber">ТЕРМІНОВО</span>'
+          :'<span class="badge green">МОЖНА</span>';
+        html+='<td>'+prio+'</td>';
+        // Рекомендоване замовлення (ціль — 30 днів запасу)
+        const sq=p.suggested_order_qty||0;
+        const sv=p.suggested_order_value||0;
+        const sqClass=sq>0?'red':'gray';
+        html+='<td class="num"><span class="badge '+sqClass+'" style="font-size:13px">'+(sq>0?fmtNum(sq):'—')+'</span></td>';
+        html+='<td class="num">'+(sv>0?'<b>'+fmtUAH(sv)+'</b>':'—')+'</td>';
+      }else{
+        html+='<td class="num">'+fmtNum(p.units_sold)+'</td>';
+        html+='<td class="num"><span class="badge '+dlvClass+'">'+(dlv===null?'—':dlv+' дн')+'</span></td>';
+        html+='<td class="num"><b>'+fmtUAH(p.stock_value)+'</b></td>';
+      }
+      html+='</tr>';
+    });
+    html+='</tbody></table>';
+    return html;
+  }
+  deadTable(rows){
+    if(!rows.length)return '<div class="no-data" style="padding:20px">Немає товарів без продажів</div>';
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Артикул</th><th>Товар</th><th>Категорія</th>'
+      +'<th class="num">Залишок</th><th class="num">Собівартість</th>'
+      +'<th class="num">Ціна</th><th class="num">Заморожено</th></tr></thead><tbody>';
+    rows.forEach((p,i)=>{
+      html+='<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td><span class="code">'+(p.default_code||'—')+'</span></td>'
+        +'<td>'+(p.name||'').substring(0,80)+'</td>'
+        +'<td><span style="color:var(--text-secondary);font-size:12px">'+(p.category||'')+'</span></td>'
+        +'<td class="num">'+fmtNum(p.qty_available)+'</td>'
+        +'<td class="num">'+fmtUAH(p.standard_price)+'</td>'
+        +'<td class="num">'+fmtUAH(p.list_price)+'</td>'
+        +'<td class="num"><b style="color:var(--c4)">'+fmtUAH(p.stock_value)+'</b></td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    return html;
+  }
+  filterAbc(cls){
+    this.activeAbcCls=cls;
+    document.querySelectorAll('.filter-btn').forEach(b=>{
+      b.classList.toggle('active',b.dataset.cls===cls);
+    });
+    this.renderAbcTable();
+  }
+  renderAbcTable(){
+    const wh=this.summary.warehouse_abc;
+    const all=wh.products||[];
+    const cls=this.activeAbcCls;
+    const list=cls==='all'?all.slice(0,100):all.filter(p=>p.abc_class===cls).slice(0,100);
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>#</th><th>Клас</th><th>Артикул</th><th>Товар</th>'
+      +'<th class="num">Прод.</th><th class="num">Виручка</th>'
+      +'<th class="num">Cum. %</th><th class="num">Залишок</th>'
+      +'<th class="num">Очікується</th><th class="num">Резерв</th>'
+      +'<th class="num">Прогноз<br>(virtual)</th>'
+      +'<th class="num">Вартість</th><th class="num">Дн. на день</th>'
+      +'<th class="num">Запас<br>факт</th>'
+      +'<th class="num">Запас<br>прогноз</th></tr></thead><tbody>';
+    list.forEach((p,i)=>{
+      const clsBadge=p.abc_class==='A'?'green':p.abc_class==='B'?'amber':'red';
+      const dl=p.days_left;
+      const dlv=p.days_left_virtual;
+      const dlClass=dl===null?'gray':p.units_sold===0?'red':dl<14?'red':dl<30?'amber':dl>90?'red':'green';
+      const dlvClass=dlv===null?'gray':p.units_sold===0?'red':dlv<14?'red':dlv<30?'amber':dlv>90?'red':'green';
+      // Incoming with arrival date tooltip
+      let incomingCell;
+      if(p.incoming_qty > 0){
+        const arrDate=p.next_arrival_date?new Date(p.next_arrival_date).toLocaleDateString('uk-UA'):'';
+        const tip=arrDate?` title="Найближчий прихід: ${arrDate} (${p.next_arrival_qty} шт)"`:'';
+        incomingCell='<span style="color:var(--c3);font-weight:600"'+tip+'>+'+fmtNum(p.incoming_qty)+'</span>';
+        if(arrDate)incomingCell+='<br><span style="font-size:10px;color:var(--text-secondary)">'+arrDate+'</span>';
+      } else {
+        incomingCell='—';
+      }
+      const outgoingCell=p.outgoing_qty>0?'<span style="color:var(--c4)">−'+fmtNum(p.outgoing_qty)+'</span>':'—';
+      html+='<tr>'
+        +'<td>'+(i+1)+'</td>'
+        +'<td><span class="badge '+clsBadge+'">'+p.abc_class+'</span></td>'
+        +'<td><span class="code">'+(p.default_code||'—')+'</span></td>'
+        +'<td>'+(p.name||'').substring(0,60)+'</td>'
+        +'<td class="num">'+fmtNum(p.units_sold)+'</td>'
+        +'<td class="num"><b>'+fmtUAH(p.revenue)+'</b></td>'
+        +'<td class="num">'+p.cum_rev_pct+'%</td>'
+        +'<td class="num">'+fmtNum(p.qty_available)+'</td>'
+        +'<td class="num">'+incomingCell+'</td>'
+        +'<td class="num">'+outgoingCell+'</td>'
+        +'<td class="num"><b>'+fmtNum(p.virtual_available)+'</b></td>'
+        +'<td class="num">'+fmtUAH(p.stock_value)+'</td>'
+        +'<td class="num">'+(p.daily_sold?p.daily_sold.toFixed(2):'—')+'</td>'
+        +'<td class="num"><span class="badge '+dlClass+'">'+(dl===null?'—':dl<999?dl+' дн':'∞')+'</span></td>'
+        +'<td class="num"><span class="badge '+dlvClass+'">'+(dlv===null?'—':dlv<999?dlv+' дн':'∞')+'</span></td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    html+='<div style="font-size:11px;color:var(--text-secondary);margin-top:8px">'
+      +'<b>Очікується</b> — підтверджені прихідні поставки (PO зі статусом "purchase") + найближча дата. '
+      +'<b>Резерв</b> — кількість, яка вже зарезервована в підтверджених SO. '
+      +'<b>Прогноз (virtual)</b> = Залишок + Очікується − Резерв. '
+      +'<b>Запас прогноз</b> — на скільки днів вистачить з урахуванням приходу/резерву.</div>';
+    document.getElementById('abc-products').innerHTML=html;
+  }
+}
+
+const dash = new WarehouseDashboard(SUMMARY);
+</script>
+</body>
+</html>
