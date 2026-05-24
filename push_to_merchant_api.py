@@ -251,15 +251,80 @@ def load_currency_rates(models, db, uid, apikey):
     return rates
 
 
-def load_supplier_prices(models, db, uid, apikey, tmpl_ids, currency_rates):
+def load_warehouse_location_map(models, db, uid, apikey):
     """
-    Завантажуємо ціни постачальників для списку template IDs.
-    Повертає {tmpl_id: min_price_uah}
+    Завантажуємо stock.warehouse і будуємо карту:
+      {location_id: partner_id}
+    де location_id = lot_stock_id складу постачальника,
+        partner_id = wh_owner (res.partner) — юридична особа постачальника.
+    Повертає також список location_ids для фільтрації quants.
+    """
+    try:
+        whs = models.execute_kw(db, uid, apikey,
+            "stock.warehouse", "search_read",
+            [[["wh_owner", "!=", False]]],
+            {"fields": ["code", "lot_stock_id", "wh_owner"], "limit": 100})
+        loc_to_partner = {}
+        for wh in whs:
+            if wh.get("lot_stock_id") and wh.get("wh_owner"):
+                loc_id     = wh["lot_stock_id"][0]
+                partner_id = wh["wh_owner"][0]
+                loc_to_partner[loc_id] = partner_id
+        log(f"  Складів постачальників: {len(whs)}, локацій: {len(loc_to_partner)}")
+        return loc_to_partner
+    except Exception as e:
+        log(f"  ⚠ Помилка завантаження warehouse map: {e}")
+        return {}
+
+
+def load_variant_stock_partners(models, db, uid, apikey, variant_ids, loc_to_partner):
+    """
+    Завантажуємо stock.quant тільки для наших variant_ids і складських локацій.
+    Повертає {variant_id: set(partner_ids_з_наявністю)}
+    """
+    if not variant_ids or not loc_to_partner:
+        return {}
+
+    loc_ids = list(loc_to_partner.keys())
+    variant_partners = {}   # {variant_id: set(partner_ids)}
+    total_quants = 0
+    chunk_size = 1000       # ids per request
+
+    for i in range(0, len(variant_ids), chunk_size):
+        chunk = variant_ids[i:i + chunk_size]
+        try:
+            quants = models.execute_kw(db, uid, apikey,
+                "stock.quant", "search_read",
+                [[["product_id",   "in", chunk],
+                  ["location_id",  "in", loc_ids],
+                  ["quantity",     ">",  0]]],
+                {"fields": ["product_id", "location_id"], "limit": 10000})
+            total_quants += len(quants)
+            for q in quants:
+                vid = q["product_id"][0]
+                loc_id = q["location_id"][0]
+                partner_id = loc_to_partner.get(loc_id)
+                if partner_id:
+                    if vid not in variant_partners:
+                        variant_partners[vid] = set()
+                    variant_partners[vid].add(partner_id)
+        except Exception as e:
+            log(f"  ⚠ Помилка читання stock.quant пакет {i//chunk_size+1}: {e}")
+
+    log(f"  Quant записів: {total_quants} → {len(variant_partners)} варіантів мають stock")
+    return variant_partners
+
+
+def load_supplier_prices_all(models, db, uid, apikey, tmpl_ids, currency_rates):
+    """
+    Завантажуємо ВСІ ціни постачальників для списку template IDs.
+    Повертає {tmpl_id: {partner_id: price_uah}}
+    де price_uah — найнижча ціна даного постачальника по цьому шаблону.
     """
     if not tmpl_ids:
         return {}
 
-    min_price_map = {}
+    price_map  = {}   # {tmpl_id: {partner_id: min_price_uah}}
     chunk_size = 2000
     total_loaded = 0
 
@@ -269,29 +334,36 @@ def load_supplier_prices(models, db, uid, apikey, tmpl_ids, currency_rates):
             records = models.execute_kw(db, uid, apikey,
                 "product.supplierinfo", "search_read",
                 [[["product_tmpl_id", "in", chunk_ids],
-                  ["price", ">", 0]]],
-                {"fields": ["product_tmpl_id", "price", "currency_id", "sequence"],
+                  ["price",           ">",  0]]],
+                {"fields": ["product_tmpl_id", "partner_id", "price", "currency_id"],
                  "limit": 50000})
             total_loaded += len(records)
             for rec in records:
                 tmpl_id = rec.get("product_tmpl_id")
                 if not tmpl_id:
                     continue
-                tmpl_id = tmpl_id[0] if isinstance(tmpl_id, (list, tuple)) else tmpl_id
+                tmpl_id    = tmpl_id[0]    if isinstance(tmpl_id,    (list, tuple)) else tmpl_id
+                partner_id = rec["partner_id"][0] if rec.get("partner_id") else None
+                if not partner_id:
+                    continue
                 cur_name = "UAH"
                 if rec.get("currency_id"):
                     cur_name = rec["currency_id"][1] if isinstance(rec["currency_id"], (list, tuple)) else "UAH"
-                price = float(rec.get("price") or 0)
-                rate  = currency_rates.get(cur_name, 1.0)
+                price     = float(rec.get("price") or 0)
+                rate      = currency_rates.get(cur_name, 1.0)
                 price_uah = price * rate
                 if price_uah > 0:
-                    if tmpl_id not in min_price_map or price_uah < min_price_map[tmpl_id]:
-                        min_price_map[tmpl_id] = price_uah
+                    if tmpl_id not in price_map:
+                        price_map[tmpl_id] = {}
+                    # Зберігаємо мінімальну ціну для кожного постачальника
+                    existing = price_map[tmpl_id].get(partner_id)
+                    if existing is None or price_uah < existing:
+                        price_map[tmpl_id][partner_id] = price_uah
         except Exception as e:
             log(f"  ⚠ Помилка читання supplierinfo пакет {i//chunk_size+1}: {e}")
 
-    log(f"  Завантажено {total_loaded} записів supplierinfo → {len(min_price_map)} шаблонів з мінімальною ціною")
-    return min_price_map
+    log(f"  Завантажено {total_loaded} записів supplierinfo → {len(price_map)} шаблонів")
+    return price_map
 
 
 def load_products(models, db, uid, apikey, mode="full", days_back=2):
@@ -362,19 +434,33 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
 
     tmpl_ids = [p["id"] for p in products]
 
+    # Збираємо всі variant IDs для запиту stock.quant
+    all_variant_ids = []
+    for p in products:
+        all_variant_ids.extend(p.get("product_variant_ids") or [])
+
     # ── Крок 1: курси валют ──────────────────────────────────────────
     log("Завантажуємо курси валют...")
     currency_rates = load_currency_rates(models, db, uid, apikey)
 
-    # ── Крок 2: ціни постачальників → мінімальна ціна в UAH ─────────
-    log("Завантажуємо ціни постачальників...")
-    min_supp_map = load_supplier_prices(models, db, uid, apikey, tmpl_ids, currency_rates)
+    # ── Крок 2: склади постачальників → карта location → partner ────
+    log("Завантажуємо карту складів постачальників...")
+    loc_to_partner = load_warehouse_location_map(models, db, uid, apikey)
 
-    # ── Крок 3: ієрархія категорій (для застосування categ правил) ───
+    # ── Крок 3: наявність по складах (variant → set of partners) ────
+    log("Завантажуємо наявність товарів по складах постачальників...")
+    variant_stock_partners = load_variant_stock_partners(
+        models, db, uid, apikey, all_variant_ids, loc_to_partner)
+
+    # ── Крок 4: всі ціни постачальників (tmpl → {partner: price}) ───
+    log("Завантажуємо ціни постачальників...")
+    supp_price_map = load_supplier_prices_all(models, db, uid, apikey, tmpl_ids, currency_rates)
+
+    # ── Крок 5: ієрархія категорій (для categ правил) ────────────────
     log("Завантажуємо ієрархію категорій...")
     categ_ancestors_map = load_categ_ancestors(models, db, uid, apikey)
 
-    # ── Крок 4: фіксовані ціни прайс-листа (423 варіанти, пріоритет) ─
+    # ── Крок 6: фіксовані ціни прайс-листа (пріоритет 1) ────────────
     RETAIL_PRICELIST_ID = 1
     log("Завантажуємо фіксовані ціни прайс-листа 'Розниця'...")
     variant_price_map = {}
@@ -400,35 +486,57 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
     except Exception as e:
         log(f"  ⚠ Помилка читання фіксованих цін: {e}")
 
-    # ── Крок 5: обчислюємо retail_price для кожного шаблону ─────────
-    matched_fixed  = 0
-    matched_supp   = 0
-    no_price       = 0
+    # ── Крок 7: обчислюємо retail_price для кожного шаблону ─────────
+    matched_fixed      = 0
+    matched_stock_avg  = 0   # є постачальники з наявністю
+    matched_all_avg    = 0   # fallback: немає stock-даних, середня від усіх
+    no_price           = 0
 
     for p in products:
-        tmpl_id = p["id"]
-        retail  = 0.0
+        tmpl_id  = p["id"]
+        variants = p.get("product_variant_ids") or []
+        retail   = 0.0
 
         # Пріоритет 1: фіксована ціна варіанта в прайс-листі
-        variants = p.get("product_variant_ids") or []
         for vid in variants:
             if vid in variant_price_map:
                 retail = variant_price_map[vid]
                 matched_fixed += 1
                 break
 
-        # Пріоритет 2: обчислення з ціни постачальника + надбавка за категорією
+        # Пріоритет 2: середня роздрібна по постачальниках З НАЯВНІСТЮ
         if retail <= 1:
-            min_supp = min_supp_map.get(tmpl_id, 0.0)
-            if min_supp > 0:
-                # Визначаємо категорію товару та її батьків
+            all_prices = supp_price_map.get(tmpl_id, {})  # {partner_id: price_uah}
+
+            # Визначаємо яких постачальників цього шаблону є на складі
+            tmpl_stock_partners = set()
+            for vid in variants:
+                tmpl_stock_partners.update(variant_stock_partners.get(vid, set()))
+
+            # Беремо тільки постачальників з наявністю
+            prices_to_use = {pid: price for pid, price in all_prices.items()
+                             if pid in tmpl_stock_partners}
+
+            # Fallback: якщо дані про наявність недоступні — беремо всіх
+            if not prices_to_use and all_prices:
+                prices_to_use = all_prices
+                matched_all_avg += 1
+            elif prices_to_use:
+                matched_stock_avg += 1
+
+            if prices_to_use:
                 categ_raw = p.get("categ_id")
                 categ_id  = categ_raw[0] if isinstance(categ_raw, (list, tuple)) else categ_raw
                 ancestors = categ_ancestors_map.get(categ_id, [categ_id] if categ_id else [])
-                retail = apply_markup(min_supp, categ_id=categ_id, categ_ancestors=ancestors)
-                matched_supp += 1
 
-        # Пріоритет 3: list_price (рідко — тільки для особливих товарів)
+                # Роздрібна ціна для кожного постачальника → середня
+                retail_prices = [
+                    apply_markup(price_uah, categ_id=categ_id, categ_ancestors=ancestors)
+                    for price_uah in prices_to_use.values()
+                ]
+                retail = round(sum(retail_prices) / len(retail_prices), 2)
+
+        # Пріоритет 3: list_price (запасний варіант для товарів без supplierinfo)
         if retail <= 1:
             lp = p.get("list_price") or 0.0
             if lp > 1:
@@ -437,18 +545,27 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
 
         p["retail_price"] = retail
 
-    log(f"  Цін: фіксовані={matched_fixed} | з постачальника={matched_supp} | без ціни={no_price}")
+    log(f"  Цін: фіксовані={matched_fixed} | avg(з_наявністю)={matched_stock_avg}"
+        f" | avg(fallback)={matched_all_avg} | без_ціни={no_price}")
 
     # Приклади для перевірки
     examples = [p for p in products if p.get("retail_price", 0) > 1][:5]
     for ex in examples:
-        supp = min_supp_map.get(ex["id"], 0)
+        tmpl_id  = ex["id"]
+        variants = ex.get("product_variant_ids") or []
+        all_prices = supp_price_map.get(tmpl_id, {})
+        tmpl_sp = set()
+        for vid in variants:
+            tmpl_sp.update(variant_stock_partners.get(vid, set()))
+        used = {pid: pr for pid, pr in all_prices.items() if pid in tmpl_sp} or all_prices
         categ_raw = ex.get("categ_id")
         categ_id  = categ_raw[0] if isinstance(categ_raw, (list, tuple)) else categ_raw
         ancestors = categ_ancestors_map.get(categ_id, [])
         used_categ = next((c for c in ancestors if c in CATEG_MARKUP), None)
         rule_info = f"categ_rule={used_categ}({CATEG_MARKUP[used_categ]}%)" if used_categ else "global_table"
-        log(f"  ✓ {ex.get('default_code')} → retail={ex.get('retail_price')} supp_min={supp:.2f} [{rule_info}]")
+        stock_flag = "stock" if tmpl_sp else "no_stock_fallback"
+        log(f"  ✓ {ex.get('default_code')} → retail={ex.get('retail_price')}"
+            f" n_supps={len(used)} [{rule_info}] [{stock_flag}]")
     no_ex = [p for p in products if p.get("retail_price", 0) <= 1][:3]
     for ex in no_ex:
         log(f"  ✗ {ex.get('default_code')} → БЕЗ ЦІНИ (list_price={ex.get('list_price')})")
