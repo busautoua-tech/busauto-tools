@@ -17,6 +17,12 @@ import configparser
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
+# Захист від дублювання: якщо запущено НЕ через GitHub Actions і НЕ з явним флагом —
+# виходимо мовчки. Це блокує дублікати від Windows Task Scheduler.
+# Для ручного локального запуску: set RUN_LOCAL_DIGEST=1 && python daily_digest.py
+if not os.getenv("GITHUB_ACTIONS") and not os.getenv("RUN_LOCAL_DIGEST"):
+    sys.exit(0)
+
 
 def now_kyiv():
     """Поточний час Києва незалежно від часового поясу сервера."""
