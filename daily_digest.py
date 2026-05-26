@@ -142,21 +142,85 @@ def build_digest():
         lines.append(f"🔄 Повторні клієнти: "
                      f"*{cohort['repeat_revenue_pct']:.0f}%* виручки")
 
-    # ROAS Google Ads
+    # ── Google Ads: ROAS по акаунтах + витрати сьогодні ──────────────────────
     if os.path.exists(GADS_FILE):
         try:
             with open(GADS_FILE, "r", encoding="utf-8") as f:
                 g = json.load(f)
-            cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-            recent = [r for r in g.get("daily_by_account", [])
-                      if r.get("date", "") >= cutoff]
-            cost = sum(r.get("cost", 0) or 0 for r in recent)
-            cv = sum(r.get("conv_value", 0) or 0 for r in recent)
-            roas = cv / cost if cost else 0
-            emoji = "✅" if roas >= 4 else "⚠️" if roas >= 2 else "🔴"
-            lines.append(f"🎯 ROAS Google (7д): *{roas:.2f}x* {emoji}")
+            all_rows = g.get("daily_by_account", [])
+            if all_rows:
+                last_gads_date = max(r["date"] for r in all_rows)
+                last_gads_dt   = datetime.strptime(last_gads_date, "%Y-%m-%d")
+                cutoff_7d      = (last_gads_dt - timedelta(days=7)).strftime("%Y-%m-%d")
+
+                # --- 1. ROAS окремо по кожному акаунту (7 днів, без останнього дня) ---
+                prev_rows = [r for r in all_rows
+                             if cutoff_7d <= r.get("date", "") < last_gads_date]
+                acc_stats: dict = {}
+                for r in prev_rows:
+                    acc = r.get("account", "?")
+                    if acc not in acc_stats:
+                        acc_stats[acc] = {"cost": 0.0, "cv": 0.0}
+                    acc_stats[acc]["cost"] += r.get("cost", 0) or 0
+                    acc_stats[acc]["cv"]   += r.get("conv_value", 0) or 0
+
+                if acc_stats:
+                    lines.append("🎯 *ROAS Google Ads (7д):*")
+                    ACCOUNT_SHORT = {
+                        "busauto.kh.ua":  "busauto.kh.ua",
+                        "automobil.in.ua": "automobil.in.ua",
+                    }
+                    for acc_name, data in sorted(acc_stats.items()):
+                        roas = data["cv"] / data["cost"] if data["cost"] else 0
+                        em   = "✅" if roas >= 4 else "⚠️" if roas >= 2 else "🔴"
+                        label = ACCOUNT_SHORT.get(acc_name, acc_name)
+                        lines.append(f"  • {label}: *{roas:.2f}x* {em}")
+
+                # --- 2. Витрати Google Ads сьогодні vs середнє ---
+                today_rows  = [r for r in all_rows if r.get("date") == last_gads_date]
+                today_cost  = sum(r.get("cost", 0) or 0 for r in today_rows)
+                prev_dates  = {r["date"] for r in prev_rows}
+                if prev_dates:
+                    avg_daily = (sum(r.get("cost", 0) or 0 for r in prev_rows)
+                                 / len(prev_dates))
+                    chg = ((today_cost / avg_daily) - 1) * 100 if avg_daily else None
+                    em_spend = "🔴" if chg and abs(chg) > 40 else "⚠️" if chg and abs(chg) > 20 else "✅"
+                    chg_str  = (f" ({'+' if chg >= 0 else ''}{chg:.0f}% до серед.)"
+                                if chg is not None else "")
+                    lines.append(f"💸 Витрати сьогодні: *{fmt_uah(today_cost)}*{chg_str} {em_spend}")
+                else:
+                    lines.append(f"💸 Витрати сьогодні: *{fmt_uah(today_cost)}*")
         except Exception as e:
             print(f"[WARN] gads_summary: {e}")
+
+    # ── 3. Розбивка замовлень по каналах (останній день) ──────────────────────
+    CHANNEL_LABELS = {
+        "prom.ua":      "Prom (busauto.kh.ua)",
+        "Automobil":    "Horoshop (automobil.in.ua)",
+        "Rozetka":      "Rozetka",
+        "Avto.pro":     "Avto.pro",
+        "busauto.ua":   "busauto.ua",
+        "Магазин":      "Магазин",
+        "(не вказано)": "без джерела",
+    }
+    by_source = s.get("daily_by_source", []) or []
+    if by_source:
+        try:
+            last_src_date = max(r["date"] for r in by_source)
+            today_src = [r for r in by_source if r["date"] == last_src_date]
+            today_src_sorted = sorted(today_src,
+                                      key=lambda x: x.get("revenue", 0),
+                                      reverse=True)
+            if today_src_sorted:
+                lines.append(f"📡 *Канали ({last_src_date}):*")
+                for row in today_src_sorted[:6]:
+                    src    = row.get("source", "?")
+                    label  = CHANNEL_LABELS.get(src, src)
+                    orders = row.get("orders", 0)
+                    rev    = row.get("revenue", 0)
+                    lines.append(f"  • {label}: *{orders}* зам. / {fmt_uah(rev)}")
+        except Exception as e:
+            print(f"[WARN] daily_by_source: {e}")
 
     # ALERTS
     alerts = []
