@@ -48,13 +48,8 @@ jobs:
       - name: Send weekly digest
         run: python finance_digest.py --mode weekly
 
-      - name: Build dashboards
-        run: python build_dashboard.py
-        continue-on-error: true
-
-      - name: Send dashboards
-        run: python send_dashboards_telegram.py
-        continue-on-error: true
+      # Дашборди НЕ надсилаємо — у понеділок о 09:00 їх вже надсилає digest.yml
+      # Щоб уникнути дублікатів у Telegram
 
       - name: Upload finance summary
         if: always()
