@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BusAuto — Google Ads Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1117; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+  .header { background: linear-gradient(135deg, #1a1f2e 0%, #16213e 100%); padding: 20px 28px; border-bottom: 1px solid #2d3748; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+  .header h1 { font-size: 1.4rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+  .header h1 span { font-size: 1.6rem; }
+  .header-meta { font-size: 0.78rem; color: #718096; }
+  .period-badge { background: #2d3748; color: #90cdf4; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+
+  .container { padding: 24px 28px; max-width: 1400px; }
+
+  /* KPI CARDS */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .kpi-card { background: #1a1f2e; border-radius: 12px; padding: 18px 20px; border: 1px solid #2d3748; position: relative; overflow: hidden; }
+  .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .kpi-card.green::before { background: linear-gradient(90deg, #38a169, #68d391); }
+  .kpi-card.blue::before  { background: linear-gradient(90deg, #3182ce, #63b3ed); }
+  .kpi-card.yellow::before{ background: linear-gradient(90deg, #d69e2e, #f6e05e); }
+  .kpi-card.red::before   { background: linear-gradient(90deg, #e53e3e, #fc8181); }
+  .kpi-card.purple::before{ background: linear-gradient(90deg, #805ad5, #b794f4); }
+  .kpi-card.teal::before  { background: linear-gradient(90deg, #2c7a7b, #81e6d9); }
+  .kpi-label { font-size: 0.72rem; color: #718096; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .kpi-value { font-size: 1.6rem; font-weight: 700; color: #fff; line-height: 1; }
+  .kpi-sub   { font-size: 0.75rem; color: #a0aec0; margin-top: 6px; }
+  .kpi-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; margin-top: 6px; }
+  .badge-green { background: rgba(56,161,105,0.2); color: #68d391; }
+  .badge-red   { background: rgba(229,62,62,0.2);  color: #fc8181; }
+  .badge-yellow{ background: rgba(214,158,46,0.2); color: #f6e05e; }
+
+  /* ACCOUNT COMPARE */
+  .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+  @media (max-width: 700px) { .account-grid { grid-template-columns: 1fr; } }
+  .account-card { background: #1a1f2e; border-radius: 12px; padding: 20px; border: 1px solid #2d3748; }
+  .account-card.busauto { border-left: 4px solid #4299e1; }
+  .account-card.automobil { border-left: 4px solid #f6ad55; }
+  .account-title { font-size: 1rem; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .account-title .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-blue { background: #4299e1; }
+  .dot-orange { background: #f6ad55; }
+  .metrics-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .metric-item { background: #16213e; border-radius: 8px; padding: 10px 12px; }
+  .metric-label { font-size: 0.68rem; color: #718096; margin-bottom: 3px; text-transform: uppercase; }
+  .metric-value { font-size: 1.1rem; font-weight: 700; color: #fff; }
+  .metric-sub   { font-size: 0.68rem; color: #a0aec0; margin-top: 2px; }
+
+  /* CHARTS */
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+  @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+  .chart-card { background: #1a1f2e; border-radius: 12px; padding: 20px; border: 1px solid #2d3748; }
+  .chart-card.wide { grid-column: 1 / -1; }
+  .chart-title { font-size: 0.85rem; font-weight: 600; color: #cbd5e0; margin-bottom: 16px; display: flex; align-items: center; gap: 6px; }
+  .chart-title .icon { font-size: 1rem; }
+  .chart-wrap { position: relative; height: 260px; }
+  .chart-card.wide .chart-wrap { height: 220px; }
+
+  /* ALERT */
+  .alerts-section { margin-bottom: 28px; }
+  .alert-box { background: #1a1f2e; border-radius: 10px; padding: 14px 18px; border: 1px solid #2d3748; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 12px; }
+  .alert-box.warn  { border-left: 4px solid #d69e2e; }
+  .alert-box.danger{ border-left: 4px solid #e53e3e; }
+  .alert-box.info  { border-left: 4px solid #3182ce; }
+  .alert-icon { font-size: 1.2rem; flex-shrink: 0; margin-top: 1px; }
+  .alert-text { font-size: 0.82rem; color: #cbd5e0; line-height: 1.5; }
+  .alert-text strong { color: #fff; }
+
+  .section-title { font-size: 0.8rem; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+
+  /* FOOTER */
+  .footer { text-align: center; padding: 20px; font-size: 0.72rem; color: #4a5568; border-top: 1px solid #1a1f2e; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>📊</span> BusAuto — Google Ads</h1>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <span class="period-badge" id="periodBadge">30 днів</span>
+    <div class="header-meta" id="lastUpdated"></div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- KPI CARDS -->
+  <div class="kpi-grid" id="kpiGrid"></div>
+
+  <!-- ACCOUNT COMPARISON -->
+  <div class="section-title">Порівняння акаунтів (30 днів)</div>
+  <div class="account-grid">
+    <div class="account-card busauto">
+      <div class="account-title"><span class="dot dot-blue"></span> busauto.kh.ua</div>
+      <div class="metrics-row" id="busautoMetrics"></div>
+    </div>
+    <div class="account-card automobil">
+      <div class="account-title"><span class="dot dot-orange"></span> automobil.in.ua</div>
+      <div class="metrics-row" id="automobilMetrics"></div>
+    </div>
+  </div>
+
+  <!-- ALERTS -->
+  <div class="section-title">Аналіз і рекомендації</div>
+  <div class="alerts-section" id="alertsSection"></div>
+
+  <!-- CHARTS -->
+  <div class="charts-grid">
+    <div class="chart-card wide">
+      <div class="chart-title"><span class="icon">📈</span> ROAS по днях — обидва акаунти</div>
+      <div class="chart-wrap"><canvas id="roasChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon">💸</span> Щоденні витрати (₴)</div>
+      <div class="chart-wrap"><canvas id="spendChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon">🎯</span> Дохід від конверсій (₴)</div>
+      <div class="chart-wrap"><canvas id="revenueChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon">🖱</span> Кліки по днях</div>
+      <div class="chart-wrap"><canvas id="clicksChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon">✅</span> Конверсії по днях</div>
+      <div class="chart-wrap"><canvas id="convChart"></canvas></div>
+    </div>
+  </div>
+
+</div>
+<div class="footer" id="footer"></div>
+
+<script>
+// ─── EMBEDDED DATA ────────────────────────────────────────────────────────────
+const RAW = {"generated_at":"2026-05-02T21:30:00","period_days":30,"currency":"UAH","accounts":[{"account_id":"5691399829","name":"automobil.in.ua","site":"automobil.in.ua","odoo_source":"Automobil"},{"account_id":"4884912382","name":"busauto.kh.ua","site":"busauto.kh.ua","odoo_source":"prom.ua"}],"daily_by_account":[{"date":"2026-04-02","account":"automobil.in.ua","impressions":17816,"clicks":509,"cost":1851.97,"conversions":4.5,"all_conversions":21.5,"conv_value":1166},{"date":"2026-04-03","account":"automobil.in.ua","impressions":16771,"clicks":437,"cost":1465.44,"conversions":1.5,"all_conversions":21.99,"conv_value":251},{"date":"2026-04-04","account":"automobil.in.ua","impressions":19102,"clicks":491,"cost":1809.96,"conversions":13.47,"all_conversions":28.98,"conv_value":3084},{"date":"2026-04-05","account":"automobil.in.ua","impressions":16282,"clicks":425,"cost":1514.45,"conversions":7.01,"all_conversions":12.34,"conv_value":4018},{"date":"2026-04-06","account":"automobil.in.ua","impressions":17743,"clicks":491,"cost":1664.66,"conversions":8.29,"all_conversions":35.78,"conv_value":3523.27},{"date":"2026-04-07","account":"automobil.in.ua","impressions":17928,"clicks":445,"cost":1371.93,"conversions":6.56,"all_conversions":33.73,"conv_value":3356.77},{"date":"2026-04-08","account":"automobil.in.ua","impressions":18595,"clicks":438,"cost":1499.24,"conversions":8.99,"all_conversions":18.49,"conv_value":2145},{"date":"2026-04-09","account":"automobil.in.ua","impressions":15284,"clicks":445,"cost":1432.32,"conversions":13.94,"all_conversions":26.6,"conv_value":4623},{"date":"2026-04-10","account":"automobil.in.ua","impressions":18784,"clicks":461,"cost":1498.68,"conversions":13.5,"all_conversions":32.34,"conv_value":3422},{"date":"2026-04-11","account":"automobil.in.ua","impressions":13648,"clicks":328,"cost":1191.42,"conversions":8.5,"all_conversions":16.51,"conv_value":1304},{"date":"2026-04-12","account":"automobil.in.ua","impressions":9184,"clicks":220,"cost":844.53,"conversions":5,"all_conversions":9.51,"conv_value":4981},{"date":"2026-04-13","account":"automobil.in.ua","impressions":17018,"clicks":401,"cost":1695.28,"conversions":3.56,"all_conversions":18.56,"conv_value":1546},{"date":"2026-04-14","account":"automobil.in.ua","impressions":16642,"clicks":454,"cost":1565.5,"conversions":6.44,"all_conversions":17.94,"conv_value":4652},{"date":"2026-04-15","account":"automobil.in.ua","impressions":15680,"clicks":404,"cost":1600.55,"conversions":6.01,"all_conversions":22,"conv_value":2337},{"date":"2026-04-16","account":"automobil.in.ua","impressions":16206,"clicks":448,"cost":1600.9,"conversions":4,"all_conversions":15,"conv_value":1696},{"date":"2026-04-17","account":"automobil.in.ua","impressions":15388,"clicks":417,"cost":1745.19,"conversions":5,"all_conversions":14,"conv_value":1857},{"date":"2026-04-18","account":"automobil.in.ua","impressions":15253,"clicks":364,"cost":1643.17,"conversions":7.5,"all_conversions":23.17,"conv_value":1825},{"date":"2026-04-19","account":"automobil.in.ua","impressions":12484,"clicks":343,"cost":1496.13,"conversions":6,"all_conversions":9.33,"conv_value":2406},{"date":"2026-04-20","account":"automobil.in.ua","impressions":15746,"clicks":419,"cost":1628.72,"conversions":4,"all_conversions":9.5,"conv_value":2070},{"date":"2026-04-21","account":"automobil.in.ua","impressions":14491,"clicks":389,"cost":1498.33,"conversions":6,"all_conversions":21.5,"conv_value":1833},{"date":"2026-04-22","account":"automobil.in.ua","impressions":16748,"clicks":426,"cost":1310.2,"conversions":7.89,"all_conversions":26.06,"conv_value":2430.54},{"date":"2026-04-23","account":"automobil.in.ua","impressions":18468,"clicks":533,"cost":1284.82,"conversions":3.2,"all_conversions":13.01,"conv_value":868.77},{"date":"2026-04-24","account":"automobil.in.ua","impressions":15699,"clicks":406,"cost":1222.2,"conversions":9,"all_conversions":15.01,"conv_value":3345},{"date":"2026-04-25","account":"automobil.in.ua","impressions":13265,"clicks":345,"cost":1223.03,"conversions":5,"all_conversions":12,"conv_value":2333},{"date":"2026-04-26","account":"automobil.in.ua","impressions":13202,"clicks":410,"cost":1102.62,"conversions":4.99,"all_conversions":25.01,"conv_value":2203},{"date":"2026-04-27","account":"automobil.in.ua","impressions":15981,"clicks":413,"cost":1310.35,"conversions":2.99,"all_conversions":21.99,"conv_value":1521},{"date":"2026-04-28","account":"automobil.in.ua","impressions":13359,"clicks":364,"cost":1157.71,"conversions":11,"all_conversions":20.6,"conv_value":5497},{"date":"2026-04-29","account":"automobil.in.ua","impressions":15979,"clicks":367,"cost":1296.67,"conversions":6.99,"all_conversions":14.48,"conv_value":2602},{"date":"2026-04-30","account":"automobil.in.ua","impressions":14753,"clicks":399,"cost":1116.68,"conversions":6,"all_conversions":17.47,"conv_value":1558},{"date":"2026-05-01","account":"automobil.in.ua","impressions":13781,"clicks":358,"cost":1095.64,"conversions":8.8,"all_conversions":19.8,"conv_value":6232.12},{"date":"2026-04-02","account":"busauto.kh.ua","impressions":18059,"clicks":427,"cost":1689.21,"conversions":22.32,"all_conversions":30.31,"conv_value":7255.99},{"date":"2026-04-03","account":"busauto.kh.ua","impressions":20786,"clicks":457,"cost":2186.47,"conversions":24.99,"all_conversions":39.99,"conv_value":14225},{"date":"2026-04-04","account":"busauto.kh.ua","impressions":22429,"clicks":469,"cost":2170.25,"conversions":39.38,"all_conversions":59.38,"conv_value":12046.57},{"date":"2026-04-05","account":"busauto.kh.ua","impressions":23863,"clicks":494,"cost":2231.58,"conversions":18.19,"all_conversions":31.45,"conv_value":9264},{"date":"2026-04-06","account":"busauto.kh.ua","impressions":21523,"clicks":477,"cost":2040.53,"conversions":26.95,"all_conversions":41.01,"conv_value":9533},{"date":"2026-04-07","account":"busauto.kh.ua","impressions":25829,"clicks":579,"cost":2179.57,"conversions":25.28,"all_conversions":34.4,"conv_value":6090},{"date":"2026-04-08","account":"busauto.kh.ua","impressions":21530,"clicks":482,"cost":1728.2,"conversions":19.12,"all_conversions":30.12,"conv_value":9384},{"date":"2026-04-09","account":"busauto.kh.ua","impressions":22898,"clicks":528,"cost":2286.35,"conversions":16.67,"all_conversions":23.68,"conv_value":3510.93},{"date":"2026-04-10","account":"busauto.kh.ua","impressions":23409,"clicks":523,"cost":2116.34,"conversions":22.22,"all_conversions":34.22,"conv_value":10362.89},{"date":"2026-04-11","account":"busauto.kh.ua","impressions":21478,"clicks":527,"cost":2089.33,"conversions":26.03,"all_conversions":37.04,"conv_value":6067},{"date":"2026-04-12","account":"busauto.kh.ua","impressions":20031,"clicks":405,"cost":1869.78,"conversions":4.55,"all_conversions":8.43,"conv_value":1234},{"date":"2026-04-13","account":"busauto.kh.ua","impressions":25132,"clicks":539,"cost":2608.04,"conversions":23.44,"all_conversions":32.61,"conv_value":12742},{"date":"2026-04-14","account":"busauto.kh.ua","impressions":19402,"clicks":481,"cost":1944.15,"conversions":29.45,"all_conversions":47.95,"conv_value":11514},{"date":"2026-04-15","account":"busauto.kh.ua","impressions":23108,"clicks":549,"cost":2249.83,"conversions":25.04,"all_conversions":37.04,"conv_value":10878.85},{"date":"2026-04-16","account":"busauto.kh.ua","impressions":21271,"clicks":518,"cost":1883.85,"conversions":30.32,"all_conversions":48.32,"conv_value":13099},{"date":"2026-04-17","account":"busauto.kh.ua","impressions":24767,"clicks":560,"cost":2207.87,"conversions":15.44,"all_conversions":25.28,"conv_value":6399.15},{"date":"2026-04-18","account":"busauto.kh.ua","impressions":22425,"clicks":486,"cost":2042.81,"conversions":16.18,"all_conversions":24.42,"conv_value":15715},{"date":"2026-04-19","account":"busauto.kh.ua","impressions":21782,"clicks":468,"cost":2069.08,"conversions":18.84,"all_conversions":31.39,"conv_value":9825.53},{"date":"2026-04-20","account":"busauto.kh.ua","impressions":23641,"clicks":538,"cost":2128.66,"conversions":28.62,"all_conversions":43.11,"conv_value":13598},{"date":"2026-04-21","account":"busauto.kh.ua","impressions":22706,"clicks":522,"cost":1862.82,"conversions":23.51,"all_conversions":40.01,"conv_value":15453},{"date":"2026-04-22","account":"busauto.kh.ua","impressions":26363,"clicks":570,"cost":1986.27,"conversions":23.73,"all_conversions":32.79,"conv_value":6941.87},{"date":"2026-04-23","account":"busauto.kh.ua","impressions":23850,"clicks":531,"cost":2006.21,"conversions":17.66,"all_conversions":28.66,"conv_value":6939},{"date":"2026-04-24","account":"busauto.kh.ua","impressions":20089,"clicks":394,"cost":1747.09,"conversions":17.99,"all_conversions":27.98,"conv_value":18147},{"date":"2026-04-25","account":"busauto.kh.ua","impressions":22557,"clicks":485,"cost":2382.39,"conversions":22.02,"all_conversions":36.02,"conv_value":14640.23},{"date":"2026-04-26","account":"busauto.kh.ua","impressions":17744,"clicks":384,"cost":1426.34,"conversions":16,"all_conversions":25.56,"conv_value":5500},{"date":"2026-04-27","account":"busauto.kh.ua","impressions":24190,"clicks":539,"cost":2462.66,"conversions":24.32,"all_conversions":36.32,"conv_value":13151},{"date":"2026-04-28","account":"busauto.kh.ua","impressions":21969,"clicks":520,"cost":1761.83,"conversions":22,"all_conversions":38.04,"conv_value":9119},{"date":"2026-04-29","account":"busauto.kh.ua","impressions":22446,"clicks":480,"cost":1918.2,"conversions":19.67,"all_conversions":30.67,"conv_value":9300},{"date":"2026-04-30","account":"busauto.kh.ua","impressions":20844,"clicks":426,"cost":1670.38,"conversions":19.94,"all_conversions":30.94,"conv_value":6710.24},{"date":"2026-05-01","account":"busauto.kh.ua","impressions":19189,"clicks":433,"cost":1734.34,"conversions":13.98,"all_conversions":20.98,"conv_value":10397}]};
+
+// ─── DATA PROCESSING ──────────────────────────────────────────────────────────
+const rows = RAW.daily_by_account;
+
+function accStats(name) {
+  const r = rows.filter(d => d.account === name);
+  const cost    = r.reduce((s, d) => s + d.cost, 0);
+  const cv      = r.reduce((s, d) => s + d.conv_value, 0);
+  const conv    = r.reduce((s, d) => s + d.conversions, 0);
+  const clicks  = r.reduce((s, d) => s + d.clicks, 0);
+  const impr    = r.reduce((s, d) => s + d.impressions, 0);
+  return { cost, cv, conv, clicks, impr, roas: cv/cost, cpa: cost/conv, ctr: clicks/impr*100 };
+}
+
+const busauto  = accStats('busauto.kh.ua');
+const automobil = accStats('automobil.in.ua');
+const total = {
+  cost: busauto.cost + automobil.cost,
+  cv:   busauto.cv + automobil.cv,
+  conv: busauto.conv + automobil.conv,
+  clicks: busauto.clicks + automobil.clicks,
+};
+total.roas = total.cv / total.cost;
+
+// Unique sorted dates
+const dates = [...new Set(rows.map(d => d.date))].sort();
+
+function byDate(accName, key) {
+  return dates.map(dt => {
+    const r = rows.find(d => d.date === dt && d.account === accName);
+    return r ? r[key] : null;
+  });
+}
+
+function dailyRoas(accName) {
+  return dates.map(dt => {
+    const r = rows.find(d => d.date === dt && d.account === accName);
+    return (r && r.cost > 0) ? +(r.conv_value / r.cost).toFixed(2) : null;
+  });
+}
+
+// ─── HEADER ───────────────────────────────────────────────────────────────────
+document.getElementById('lastUpdated').textContent = 'Дані: ' + RAW.generated_at.replace('T', ' ');
+document.getElementById('footer').textContent = 'BusAuto Google Ads Dashboard · Дані: ' + RAW.generated_at.replace('T',' ') + ' · Двигун: Supermetrics → gads_summary.json';
+
+// ─── KPI CARDS ────────────────────────────────────────────────────────────────
+function fmt(n, d=0) {
+  if (n >= 1e6) return (n/1e6).toFixed(2) + ' млн';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + ' тис';
+  return n.toFixed(d);
+}
+function fmtUAH(n) { return fmt(n) + ' ₴'; }
+
+const roasEmoji = r => r >= 4 ? '✅' : r >= 2 ? '⚠️' : '🔴';
+
+const kpis = [
+  { label: 'Загальні витрати (30д)', value: fmtUAH(total.cost), sub: `${fmtUAH(total.cost/30)}/день`, color: 'blue' },
+  { label: 'Загальний ROAS', value: total.roas.toFixed(2) + 'x', sub: `Дохід ${fmtUAH(total.cv)}`, badge: roasEmoji(total.roas) + ' ' + (total.roas >= 4 ? 'Відмінно' : total.roas >= 2 ? 'Задовільно' : 'Увага!'), badgeClass: total.roas >= 4 ? 'badge-green' : total.roas >= 2 ? 'badge-yellow' : 'badge-red', color: total.roas >= 4 ? 'green' : total.roas >= 2 ? 'yellow' : 'red' },
+  { label: 'busauto.kh.ua ROAS', value: busauto.roas.toFixed(2) + 'x', sub: `Витрати ${fmtUAH(busauto.cost)}`, badge: roasEmoji(busauto.roas) + ' busauto', badgeClass: busauto.roas >= 4 ? 'badge-green' : 'badge-yellow', color: 'blue' },
+  { label: 'automobil.in.ua ROAS', value: automobil.roas.toFixed(2) + 'x', sub: `Витрати ${fmtUAH(automobil.cost)}`, badge: roasEmoji(automobil.roas) + ' automobil', badgeClass: automobil.roas >= 4 ? 'badge-green' : automobil.roas >= 2 ? 'badge-yellow' : 'badge-red', color: automobil.roas >= 4 ? 'green' : automobil.roas >= 2 ? 'yellow' : 'red' },
+  { label: 'Конверсій (30д)', value: fmt(total.conv, 0), sub: `CPA загал. ${fmtUAH(total.cost/total.conv)}`, color: 'purple' },
+  { label: 'Кліків (30д)', value: fmt(total.clicks, 0), sub: `CTR сер. ${((busauto.ctr + automobil.ctr)/2).toFixed(2)}%`, color: 'teal' },
+];
+
+const grid = document.getElementById('kpiGrid');
+kpis.forEach(k => {
+  const d = document.createElement('div');
+  d.className = 'kpi-card ' + k.color;
+  d.innerHTML = `<div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div><div class="kpi-sub">${k.sub}</div>${k.badge ? `<span class="kpi-badge ${k.badgeClass}">${k.badge}</span>` : ''}`;
+  grid.appendChild(d);
+});
+
+// ─── ACCOUNT CARDS ────────────────────────────────────────────────────────────
+function renderMetrics(elId, stats, budget) {
+  const el = document.getElementById(elId);
+  const items = [
+    { label: 'ROAS', value: stats.roas.toFixed(2) + 'x' },
+    { label: 'Витрати', value: fmtUAH(stats.cost), sub: `~${fmtUAH(stats.cost/30)}/день` },
+    { label: 'Дохід', value: fmtUAH(stats.cv), sub: `${((stats.cv/total.cv)*100).toFixed(0)}% від заг.` },
+    { label: 'CPA', value: fmtUAH(stats.cpa), sub: `${stats.conv.toFixed(0)} конверсій` },
+    { label: 'Кліки', value: stats.clicks.toLocaleString(), sub: `CTR ${stats.ctr.toFixed(2)}%` },
+    { label: 'Частка бюдж.', value: ((stats.cost/total.cost)*100).toFixed(0) + '%', sub: `від 103 тис ₴ загал.` },
+  ];
+  el.innerHTML = items.map(i => `<div class="metric-item"><div class="metric-label">${i.label}</div><div class="metric-value">${i.value}</div>${i.sub ? `<div class="metric-sub">${i.sub}</div>` : ''}</div>`).join('');
+}
+renderMetrics('busautoMetrics', busauto);
+renderMetrics('automobilMetrics', automobil);
+
+// ─── ALERTS ───────────────────────────────────────────────────────────────────
+const alerts = [];
+const roasDiff = busauto.roas / automobil.roas;
+if (roasDiff > 2) alerts.push({ type: 'warn', icon: '⚠️', text: `<strong>Великий розрив ROAS:</strong> busauto.kh.ua (${busauto.roas.toFixed(2)}x) в ${roasDiff.toFixed(1)} рази ефективніший за automobil.in.ua (${automobil.roas.toFixed(2)}x). Рекомендація: перекинути 20-30% бюджету з automobil на busauto.` });
+if (automobil.roas < 2.5) alerts.push({ type: 'danger', icon: '🔴', text: `<strong>automobil.in.ua ROAS нижче 2.5x.</strong> CPA ${fmtUAH(automobil.cpa)} — перевірте PMax кампанії. Дублювання PMax SHAFER між акаунтами з'їдає бюджет.` });
+alerts.push({ type: 'info', icon: '💡', text: `<strong>Потенціал busauto.kh.ua:</strong> при ROAS ${busauto.roas.toFixed(2)}x і поточному бюджеті ${fmtUAH(busauto.cost/30)}/день — збільшення на 30% дасть +${fmtUAH(busauto.cost/30*0.3*busauto.roas)}/день доходу без нових креативів.` });
+alerts.push({ type: 'info', icon: '🔜', text: `<strong>busauto.ua — наступний акаунт.</strong> Основний сайт ще не має Google Ads. Після доробки кошика — запуск окремого акаунту. Очікуваний ефект: +15-25% до поточного доходу.` });
+
+const alertsEl = document.getElementById('alertsSection');
+alerts.forEach(a => {
+  const d = document.createElement('div');
+  d.className = 'alert-box ' + a.type;
+  d.innerHTML = `<span class="alert-icon">${a.icon}</span><div class="alert-text">${a.text}</div>`;
+  alertsEl.appendChild(d);
+});
+
+// ─── CHART CONFIG ─────────────────────────────────────────────────────────────
+Chart.defaults.color = '#718096';
+Chart.defaults.borderColor = '#2d3748';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+Chart.defaults.font.size = 11;
+
+const shortDates = dates.map(d => d.slice(5)); // MM-DD
+
+const busautoColor  = '#4299e1';
+const automobilColor = '#f6ad55';
+
+// 1. ROAS Chart
+new Chart(document.getElementById('roasChart'), {
+  type: 'line',
+  data: {
+    labels: shortDates,
+    datasets: [
+      { label: 'busauto.kh.ua', data: dailyRoas('busauto.kh.ua'), borderColor: busautoColor, backgroundColor: 'rgba(66,153,225,0.08)', tension: 0.3, pointRadius: 2, borderWidth: 2, fill: true },
+      { label: 'automobil.in.ua', data: dailyRoas('automobil.in.ua'), borderColor: automobilColor, backgroundColor: 'rgba(246,173,85,0.08)', tension: 0.3, pointRadius: 2, borderWidth: 2, fill: true },
+      { label: 'Ціль (ROAS 4x)', data: dates.map(() => 4), borderColor: '#48bb78', borderDash: [6,4], borderWidth: 1.5, pointRadius: 0 },
+      { label: 'Мінімум (ROAS 2x)', data: dates.map(() => 2), borderColor: '#e53e3e', borderDash: [4,4], borderWidth: 1, pointRadius: 0 },
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}x` } } }, scales: { y: { grid: { color: '#2d3748' }, ticks: { callback: v => v + 'x' } }, x: { grid: { color: '#1a202c' } } } }
+});
+
+// 2. Spend chart
+new Chart(document.getElementById('spendChart'), {
+  type: 'bar',
+  data: {
+    labels: shortDates,
+    datasets: [
+      { label: 'busauto.kh.ua', data: byDate('busauto.kh.ua','cost'), backgroundColor: 'rgba(66,153,225,0.7)', borderRadius: 3 },
+      { label: 'automobil.in.ua', data: byDate('automobil.in.ua','cost'), backgroundColor: 'rgba(246,173,85,0.7)', borderRadius: 3 },
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true, grid: { color: '#1a202c' } }, y: { stacked: true, grid: { color: '#2d3748' }, ticks: { callback: v => v >= 1000 ? (v/1000).toFixed(1)+'к' : v } } } }
+});
+
+// 3. Revenue chart
+new Chart(document.getElementById('revenueChart'), {
+  type: 'bar',
+  data: {
+    labels: shortDates,
+    datasets: [
+      { label: 'busauto.kh.ua', data: byDate('busauto.kh.ua','conv_value'), backgroundColor: 'rgba(66,153,225,0.7)', borderRadius: 3 },
+      { label: 'automobil.in.ua', data: byDate('automobil.in.ua','conv_value'), backgroundColor: 'rgba(246,173,85,0.7)', borderRadius: 3 },
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true, grid: { color: '#1a202c' } }, y: { stacked: true, grid: { color: '#2d3748' }, ticks: { callback: v => v >= 1000 ? (v/1000).toFixed(0)+'к' : v } } } }
+});
+
+// 4. Clicks chart
+new Chart(document.getElementById('clicksChart'), {
+  type: 'line',
+  data: {
+    labels: shortDates,
+    datasets: [
+      { label: 'busauto.kh.ua', data: byDate('busauto.kh.ua','clicks'), borderColor: busautoColor, backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 2 },
+      { label: 'automobil.in.ua', data: byDate('automobil.in.ua','clicks'), borderColor: automobilColor, backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 2 },
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { grid: { color: '#2d3748' } }, x: { grid: { color: '#1a202c' } } } }
+});
+
+// 5. Conversions chart
+new Chart(document.getElementById('convChart'), {
+  type: 'line',
+  data: {
+    labels: shortDates,
+    datasets: [
+      { label: 'busauto.kh.ua', data: byDate('busauto.kh.ua','conversions'), borderColor: busautoColor, backgroundColor: 'rgba(66,153,225,0.1)', tension: 0.3, pointRadius: 2, borderWidth: 2, fill: true },
+      { label: 'automobil.in.ua', data: byDate('automobil.in.ua','conversions'), borderColor: automobilColor, backgroundColor: 'rgba(246,173,85,0.1)', tension: 0.3, pointRadius: 2, borderWidth: 2, fill: true },
+    ]
+  },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { grid: { color: '#2d3748' } }, x: { grid: { color: '#1a202c' } } } }
+});
+</script>
+</body>
+</html>
