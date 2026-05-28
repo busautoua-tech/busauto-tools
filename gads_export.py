@@ -28,28 +28,37 @@ ACCOUNT_IDS = {
 }
 LOGIN_CUSTOMER_ID = "2836486392"
 
+# Акаунти, які доступні НАПРЯМУ (без login_customer_id).
+# Якщо акаунт тут — клієнт будується без login_customer_id.
+DIRECT_ACCESS_IDS = {"5691399829"}
+
 
 # ── Credentials ───────────────────────────────────────────────────────────────
 
-def build_config():
-    """Повертає dict з credentials — з env (GitHub Actions) або з yaml (локально)."""
+def build_config(direct: bool = False):
+    """Повертає dict з credentials.
+    direct=True — без login_customer_id (для прямодоступних акаунтів).
+    """
     dev_token = os.getenv("GADS_DEVELOPER_TOKEN")
     if dev_token:
-        # GitHub Actions: credentials з секретів
-        return {
-            "developer_token":   dev_token,
-            "client_id":         os.environ["GADS_CLIENT_ID"],
-            "client_secret":     os.environ["GADS_CLIENT_SECRET"],
-            "refresh_token":     os.environ["GADS_REFRESH_TOKEN"],
-            "login_customer_id": os.getenv("GADS_LOGIN_CUSTOMER_ID", LOGIN_CUSTOMER_ID),
-            "use_proto_plus":    True,
+        cfg = {
+            "developer_token": dev_token,
+            "client_id":       os.environ["GADS_CLIENT_ID"],
+            "client_secret":   os.environ["GADS_CLIENT_SECRET"],
+            "refresh_token":   os.environ["GADS_REFRESH_TOKEN"],
+            "use_proto_plus":  True,
         }
+        if not direct:
+            cfg["login_customer_id"] = os.getenv("GADS_LOGIN_CUSTOMER_ID", LOGIN_CUSTOMER_ID)
+        return cfg
     # Локально — беремо з yaml файлу
     if os.path.exists(YAML_LOCAL):
         with open(YAML_LOCAL, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         cfg["use_proto_plus"] = True
-        if not cfg.get("login_customer_id"):
+        if direct:
+            cfg.pop("login_customer_id", None)
+        elif not cfg.get("login_customer_id"):
             cfg["login_customer_id"] = LOGIN_CUSTOMER_ID
         return cfg
     raise RuntimeError(
@@ -113,16 +122,18 @@ def main():
     from google.ads.googleads.client import GoogleAdsClient
 
     print("[gads_export] Підключаюсь до Google Ads API...")
-    cfg = build_config()
-    client = GoogleAdsClient.load_from_dict(cfg)
-
     os.makedirs(os.path.join(SCRIPT_DIR, "dashboard_data"), exist_ok=True)
+
+    # Два клієнти: прямий (для акаунтів у DIRECT_ACCESS_IDS) і через MCC
+    client_direct = GoogleAdsClient.load_from_dict(build_config(direct=True))
+    client_mcc    = GoogleAdsClient.load_from_dict(build_config(direct=False))
 
     all_rows = []
     accounts_meta = []
 
     for account_id, account_name in ACCOUNT_IDS.items():
         print(f"[gads_export] Акаунт: {account_name} ({account_id})...")
+        client = client_direct if account_id in DIRECT_ACCESS_IDS else client_mcc
         rows = fetch_account(client, account_id, account_name)
         all_rows.extend(rows)
         accounts_meta.append({
@@ -134,6 +145,7 @@ def main():
 
     if not all_rows:
         print("[ERROR] Немає даних — перевірте credentials та права доступу")
+        print("[HINT] Для busauto.kh.ua: додайте busauto.ua@gmail.com як адміна в Google Ads")
         sys.exit(1)
 
     now_kyiv = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
@@ -151,9 +163,10 @@ def main():
     total_cost = sum(r["cost"] for r in all_rows)
     total_cv   = sum(r["conv_value"] for r in all_rows)
     roas = total_cv / total_cost if total_cost else 0
-    print(f"\n[gads_export] ✅ Готово: {len(all_rows)} рядків")
-    print(f"  Витрати: {total_cost:,.0f} ₴  |  Дохід: {total_cv:,.0f} ₴  |  ROAS: {roas:.2f}x")
+    print(f"\n[gads_export] Готово: {len(all_rows)} рядків")
+    print(f"  Витрати: {total_cost:,.0f} UAH  |  Дохід: {total_cv:,.0f} UAH  |  ROAS: {roas:.2f}x")
     print(f"  Збережено: {OUTPUT_FILE}")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
