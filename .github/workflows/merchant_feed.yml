@@ -43,6 +43,22 @@ jobs:
       - name: Daily sync — only changed products
         run: python push_to_merchant_api.py --mode daily --days 2
 
+      - name: Notify Telegram — daily result
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            ICON="✅"
+          else
+            ICON="❌"
+          fi
+          LOG_TAIL=$(tail -5 merchant_api.log 2>/dev/null | tr '\n' ' ' || echo "немає логу")
+          MSG="${ICON} *Google Merchant · Daily sync*%0A${LOG_TAIL}"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=${MSG}" \
+            -d "parse_mode=Markdown" > /dev/null
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -2,7 +2,6 @@ name: Accountant Daily Digest
 
 on:
   # Щодня з понеділка по п'ятницю о 07:00 UTC = 10:00 Київ
-  # (вихідних не шлемо — бухгалтер не працює)
   schedule:
     - cron: '0 7 * * 1-5'
   workflow_dispatch:
@@ -21,28 +20,23 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dependencies
+        run: pip install --quiet tzdata
+
       - name: Create config files from secrets
         run: |
-          cat > odoo_config.txt <<EOF
-          [odoo]
-          url = ${{ secrets.ODOO_URL }}
-          database = ${{ secrets.ODOO_DATABASE }}
-          username = ${{ secrets.ODOO_USERNAME }}
-          api_key = ${{ secrets.ODOO_API_KEY }}
-          EOF
-          cat > telegram_config.txt <<EOF
-          [telegram]
-          bot_token = ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          chat_id = ${{ secrets.TELEGRAM_CHAT_ID }}
-          chat_id_accountant = ${{ secrets.TELEGRAM_CHAT_ID_ACCOUNTANT }}
-          EOF
+          printf '[odoo]\nurl = https://busauto.ua\ndatabase = busauto\nusername = busauto.ua@gmail.com\napi_key = %s\n' "${{ secrets.ODOO_API_KEY }}" > odoo_config.txt
+          printf '[telegram]\nbot_token = %s\nchat_id = %s\nchat_id_accountant = %s\n' \
+            "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+            "${{ secrets.TELEGRAM_CHAT_ID }}" \
+            "${{ secrets.TELEGRAM_CHAT_ID_ACCOUNTANT }}" > telegram_config.txt
           mkdir -p dashboard_data
 
       - name: Run operational export
         run: python odoo_export.py
         timeout-minutes: 10
 
-      - name: Run finance export (для дебіторки/кредиторки)
+      - name: Run finance export
         run: python finance_export.py
         timeout-minutes: 20
 
