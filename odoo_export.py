@@ -17,10 +17,14 @@ import xmlrpc.client as xc
 import json
 import os
 import sys
+import socket
 import traceback
 import ast
 from datetime import datetime, timedelta
 from collections import defaultdict, Counter
+
+# Таймаут на кожен XML-RPC запит — запобігає вічному зависанню
+socket.setdefaulttimeout(300)   # 5 хв на один запит
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 

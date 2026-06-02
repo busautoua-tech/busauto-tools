@@ -39,11 +39,11 @@ jobs:
 
       - name: Run Odoo export
         run: python odoo_export.py
-        timeout-minutes: 15
+        timeout-minutes: 25
 
       - name: Run Finance export
         run: python finance_export.py
-        timeout-minutes: 25
+        timeout-minutes: 20
         continue-on-error: true
 
       - name: Send daily digest

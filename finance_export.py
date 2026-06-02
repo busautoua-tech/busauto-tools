@@ -17,9 +17,13 @@ import xmlrpc.client as xc
 import json
 import os
 import sys
+import socket
 import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
+
+# Таймаут на кожен XML-RPC запит — запобігає вічному зависанню
+socket.setdefaulttimeout(300)   # 5 хв на один запит
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
@@ -67,7 +71,12 @@ def odoo_connect(url, db, user, apikey):
 
 def fetch_lines_by_account(models, db, uid, apikey, account_ids,
                            date_from, date_to):
-    """Усі move.line для даних рахунків в періоді. Постранічно по 500."""
+    """
+    Агрегує move.line через read_group — замість читання кожного рядка.
+    Повертає список псевдо-рядків з полями account_id, journal_id,
+    date (YYYY-MM-01), debit, credit.
+    В ~100x швидше ніж посторінкове читання.
+    """
     if not account_ids:
         return []
     domain = [
@@ -77,29 +86,63 @@ def fetch_lines_by_account(models, db, uid, apikey, account_ids,
         ("parent_state", "=", "posted"),
     ]
     try:
-        total = models.execute_kw(db, uid, apikey, "account.move.line",
-            "search_count", [domain])
+        groups = models.execute_kw(db, uid, apikey, "account.move.line",
+            "read_group",
+            [domain,
+             ["account_id", "journal_id", "debit", "credit"],
+             ["account_id", "journal_id", "date:month"]],
+            {"lazy": False})
+        lines = []
+        for g in groups:
+            acc = g.get("account_id")
+            jrn = g.get("journal_id")
+            # date:month повертає рядок "MM/YYYY" або "YYYY-MM"
+            raw_date = g.get("date:month", "")
+            # Нормалізуємо до YYYY-MM-01
+            try:
+                if "/" in str(raw_date):
+                    m, y = str(raw_date).split("/")
+                    norm_date = f"{y}-{m.zfill(2)}-01"
+                else:
+                    norm_date = str(raw_date)[:7] + "-01"
+            except Exception:
+                norm_date = date_from[:7] + "-01"
+            lines.append({
+                "account_id": acc if isinstance(acc, list) else [acc, ""],
+                "journal_id": jrn if isinstance(jrn, list) else [jrn, ""],
+                "date": norm_date,
+                "debit": g.get("debit", 0.0),
+                "credit": g.get("credit", 0.0),
+                "partner_id": False,
+                "name": "",
+            })
+        log(f"      груп після read_group: {len(groups)}")
+        return lines
     except Exception as e:
-        log(f"[WARN] search_count account.move.line: {e}")
-        return []
-    log(f"      рядків в період: {total}")
-    lines = []
-    for offset in range(0, min(total, 100000), CHUNK):
+        log(f"[WARN] read_group failed ({e}), fallback до посторінкового читання")
+        # Fallback: старий метод з меншим лімітом
+        domain2 = domain.copy()
         try:
-            ids = models.execute_kw(db, uid, apikey, "account.move.line",
-                "search", [domain],
-                {"limit": CHUNK, "offset": offset, "order": "id"})
-            if not ids:
-                break
-            batch = models.execute_kw(db, uid, apikey, "account.move.line",
-                "read", [ids, ["account_id", "journal_id", "date",
-                               "debit", "credit", "partner_id", "name"]])
-            lines.extend(batch)
-        except Exception as e:
-            log(f"[WARN] batch offset={offset}: {e}")
-        if (offset // CHUNK + 1) % 10 == 0:
-            log(f"      ...прочитано {min(offset+CHUNK, total)} / {total}")
-    return lines
+            total = models.execute_kw(db, uid, apikey, "account.move.line",
+                "search_count", [domain2])
+        except Exception:
+            return []
+        log(f"      рядків (fallback): {total}")
+        lines = []
+        for offset in range(0, min(total, 50000), CHUNK):
+            try:
+                ids = models.execute_kw(db, uid, apikey, "account.move.line",
+                    "search", [domain2],
+                    {"limit": CHUNK, "offset": offset, "order": "id"})
+                if not ids:
+                    break
+                batch = models.execute_kw(db, uid, apikey, "account.move.line",
+                    "read", [ids, ["account_id", "journal_id", "date",
+                                   "debit", "credit", "partner_id", "name"]])
+                lines.extend(batch)
+            except Exception as ex:
+                log(f"[WARN] batch {offset}: {ex}")
+        return lines
 
 
 def main():

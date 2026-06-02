@@ -39,7 +39,7 @@ jobs:
 
       - name: Run Finance export
         run: python finance_export.py
-        timeout-minutes: 25
+        timeout-minutes: 20
 
       - name: Send monthly digest
         run: python finance_digest.py --mode monthly

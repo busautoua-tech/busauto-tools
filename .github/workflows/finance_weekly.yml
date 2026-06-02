@@ -39,7 +39,7 @@ jobs:
 
       - name: Run Odoo export
         run: python odoo_export.py
-        timeout-minutes: 10
+        timeout-minutes: 25
 
       - name: Run Finance export
         run: python finance_export.py
