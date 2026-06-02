@@ -596,37 +596,4 @@ def main():
     size_kb = os.path.getsize(out) / 1024
     log(f"\n[SAVE] finance_summary.json ({size_kb:.1f} KB)")
 
-    # Коротке зведення в лог
-    log("\n" + "=" * 60)
-    log(f" Період: {MONTHS_BACK} місяців ({period_start} ... {period_end})")
-    log("=" * 60)
-    log(f" Виручка:                  {total_period['revenue']:>15,.2f} ₴")
-    log(f" COGS:                     {total_period['cogs']:>15,.2f} ₴")
-    log(f" Валова маржа:             {total_period['gross_margin']:>15,.2f} ₴ "
-        f"({total_period['gross_margin']/total_period['revenue']*100:.1f}%)" if total_period['revenue'] else "")
-    log(f" Адмін:                    {total_period['admin']:>15,.2f} ₴")
-    log(f" Збут:                     {total_period['selling']:>15,.2f} ₴")
-    log(f" Інші:                     {total_period['other_exp']:>15,.2f} ₴")
-    log(f" OpEx total:               {total_period['opex']:>15,.2f} ₴")
-    log(f" EBIT:                     {total_period['ebit']:>15,.2f} ₴")
-    log(f"\n Грошова позиція:          {total_cash:>15,.2f} ₴")
-    if negative_accounts:
-        log(f" ⚠ Негативних рахунків:   {len(negative_accounts)}")
-        for n in negative_accounts:
-            log(f"   [{n['account_code']}] {n['account_name'][:35]:35} {n['balance']:>15,.2f}")
-    log(f"\n Дебіторка (нам винні):    {summary['receivables_total']:>15,.2f} ₴")
-    log(f" Кредиторка (ми винні):    {summary['payables_total']:>15,.2f} ₴")
-    log(f" Розрив (працює капітал):  {summary['working_capital_gap']:>15,.2f} ₴")
-    log(f"\n По ФОПах (за весь період):")
-    for fop in fop_list:
-        log(f"   {fop['fop'][:40]:40} {fop['revenue']:>15,.2f} ({fop['share_pct']:.1f}%)")
-    log("=" * 60)
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        log(f"\n[FATAL] {type(e).__name__}: {e}")
-        log(traceback.format_exc())
-        sys.exit(1)
+    # Коротке зв

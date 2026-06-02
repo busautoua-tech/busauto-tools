@@ -1151,7 +1151,4 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         log(f"\n[FATAL] {type(e).__name__}: {e}")
-        log("\n--- TRACEBACK ---")
-        log(traceback.format_exc())
-        log("\nЛог збережено у odoo_export.log - пришліть його, щоб полагодити.")
-        sys.exit(1)
+        log("\n--- TR
