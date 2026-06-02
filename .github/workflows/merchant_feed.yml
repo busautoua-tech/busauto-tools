@@ -99,4 +99,19 @@ jobs:
 
       - name: Create configs
         run: |
-          printf '[odoo]\nurl = https://busauto.ua\ndatabase = busau
+          printf '[odoo]\nurl = https://busauto.ua\ndatabase = busauto\nusername = busauto.ua@gmail.com\napi_key = %s\n' "${{ secrets.ODOO_API_KEY }}" > odoo_config.txt
+          echo '${{ secrets.GOOGLE_MERCHANT_KEY_JSON }}' > google_merchant_key.json
+
+      - name: Full sync — worker ${{ matrix.worker }} (offset ${{ matrix.offset }})
+        run: |
+          python push_to_merchant_api.py \
+            --mode full \
+            --offset ${{ matrix.offset }} \
+            --count ${{ matrix.count }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-log-worker${{ matrix.worker }}-${{ github.run_number }}
+          path: merchant_api.log
+          retention-days: 30
