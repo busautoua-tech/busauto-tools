@@ -46,18 +46,22 @@ jobs:
       - name: Notify Telegram — daily result
         if: always()
         run: |
-          STATUS="${{ job.status }}"
-          if [ "$STATUS" = "success" ]; then
-            ICON="✅"
-          else
-            ICON="❌"
-          fi
-          LOG_TAIL=$(tail -5 merchant_api.log 2>/dev/null | tr '\n' ' ' || echo "немає логу")
-          MSG="${ICON} *Google Merchant · Daily sync*%0A${LOG_TAIL}"
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=${MSG}" \
-            -d "parse_mode=Markdown" > /dev/null
+          python3 -c "
+          import urllib.request, json, subprocess
+          status = '${{ job.status }}'
+          icon = '✅' if status == 'success' else '❌'
+          try:
+            log = open('merchant_api.log').read()
+            lines = [l for l in log.splitlines() if any(k in l for k in ['Успішно','Помилок','товар','записів','Мови'])]
+            summary = '\n'.join(lines[-4:]) if lines else '\n'.join(log.splitlines()[-3:])
+          except:
+            summary = 'лог відсутній'
+          msg = f'{icon} *Google Merchant · Daily sync*\n{summary}'
+          data = json.dumps({'chat_id': '${{ secrets.TELEGRAM_CHAT_ID }}', 'text': msg, 'parse_mode': 'Markdown'}).encode()
+          req = urllib.request.Request('https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage', data=data, headers={'Content-Type': 'application/json'})
+          urllib.request.urlopen(req, timeout=10)
+          print('Telegram OK')
+          " || echo "Telegram notify failed (non-critical)"
 
       - uses: actions/upload-artifact@v4
         if: always()

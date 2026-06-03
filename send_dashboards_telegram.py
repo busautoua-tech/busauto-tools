@@ -27,6 +27,7 @@ DASHBOARDS = [
     ("busauto_owner_dashboard.html",     "owner",     "📊 *Owner dashboard* - оперативні KPI, ROAS, заказы по джерелах"),
     ("busauto_warehouse_dashboard.html", "warehouse", "🏭 *Warehouse dashboard* - ABC, dead stock, підвислі pickings"),
     ("busauto_financial_dashboard.html", "financial", "💰 *Financial dashboard* - P&L, грошова позиція, дебіторка/кредиторка"),
+    ("busauto_gads_dashboard.html",      "gads",      "📈 *Google Ads dashboard* - витрати, ROAS, кліки по акаунтах (30 днів)"),
 ]
 
 
@@ -95,7 +96,7 @@ def kyiv_time():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--only", choices=["owner", "warehouse", "financial"],
+    parser.add_argument("--only", choices=["owner", "warehouse", "financial", "gads"],
                         help="Надіслати тільки один дашборд")
     parser.add_argument("--target", choices=["owner", "accountant"],
                         default="owner",

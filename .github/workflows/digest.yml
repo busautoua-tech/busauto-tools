@@ -18,8 +18,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install tzdata
-        run: pip install --quiet tzdata
+      - name: Install dependencies
+        run: pip install --quiet tzdata google-ads pyyaml
 
       - name: Create configs
         run: |
@@ -36,6 +36,17 @@ jobs:
           chat_id = ${{ secrets.TELEGRAM_CHAT_ID }}
           EOF
           mkdir -p dashboard_data
+
+      - name: Run Google Ads export
+        run: python gads_export.py
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          GADS_DEVELOPER_TOKEN: ${{ secrets.GADS_DEVELOPER_TOKEN }}
+          GADS_CLIENT_ID: ${{ secrets.GADS_CLIENT_ID }}
+          GADS_CLIENT_SECRET: ${{ secrets.GADS_CLIENT_SECRET }}
+          GADS_REFRESH_TOKEN: ${{ secrets.GADS_REFRESH_TOKEN }}
+          GADS_LOGIN_CUSTOMER_ID: ${{ secrets.GADS_LOGIN_CUSTOMER_ID }}
 
       - name: Run Odoo export
         run: python odoo_export.py
@@ -65,7 +76,9 @@ jobs:
           path: |
             dashboard_data/summary.json
             dashboard_data/finance_summary.json
+            dashboard_data/gads_summary.json
             busauto_owner_dashboard.html
             busauto_warehouse_dashboard.html
             busauto_financial_dashboard.html
+            busauto_gads_dashboard.html
           retention-days: 7
