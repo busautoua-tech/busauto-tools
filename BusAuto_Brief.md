@@ -295,17 +295,28 @@ C:\Users\busau\Desktop\automobil-SEO-tools\
 **Причина:** workflow використовував `${{ secrets.ODOO_URL }}`, `ODOO_DATABASE`, `ODOO_USERNAME` — ці secrets не існують. Тепер хардкодить URL/DB/user як всі інші workflows.
 
 ### merchant_feed.yml — ОНОВЛЕНО
-Додано Telegram-повідомлення після кожного daily sync (✅/❌ + останні рядки логу).
+Telegram-повідомлення після кожного daily sync: ✅/❌ + рядки з "Успішно/Помилок/Мови" з лога.
 
-### Розклад workflows
-| Workflow | Час (Київ) | Скрипти |
+### 403 Forbidden XML-RPC після встановлення google-ads — ВИРІШЕНО (2026-06-03)
+**Причина:** `google-ads` встановлює `grpcio`, який змінює мережеву/DNS поведінку Python → XML-RPC до Odoo починав отримувати 403.
+**Фікс:** `pip install google-ads pyyaml` перенесено у сам крок `Run Google Ads export`, ПІСЛЯ кроків Odoo. Так `grpcio` не впливає на xmlrpc.client.
+
+### Google Ads dashboard у щоденному дайджесті — ДОДАНО (2026-06-03)
+- `gads_export.py` тепер запускається щодня в `digest.yml` (після Odoo кроків, з `continue-on-error: true`)
+- `build_dashboard.py` читає `gads_summary.json` → трансформує → оновлює `const D = {...}` в `busauto_gads_dashboard.html`
+- `send_dashboards_telegram.py` тепер надсилає **4 дашборди**: owner, warehouse, financial, gads
+- **Структура gads_summary.json:** `{generated_at, period_days, currency, accounts:[{account_id,name,site}], daily_by_account:[{date,account,impressions,clicks,cost,conversions,all_conversions,conv_value}]}`
+- **Маппінг акаунтів:** `"busauto.kh.ua"` → `"bk"`, `"automobil.in.ua"` → `"au"`
+
+### Розклад workflows (актуальний)
+| Workflow | Час (Київ) | Кроки |
 |---|---|---|
-| Daily BusAuto Digest | щодня 09:00 | odoo_export → finance_export → daily_digest → dashboards |
+| Daily BusAuto Digest | щодня 09:00 | gads_export → odoo_export → finance_export → daily_digest → build_dashboard → **4 дашборди в Telegram** |
 | Weekly Finance | пн 09:00 | odoo_export → finance_export → finance_digest --mode weekly |
-| Monthly Finance | 1-го 10:00 | finance_export → finance_digest --mode monthly → dashboards |
+| Monthly Finance | 1-го 10:00 | finance_export → finance_digest --mode monthly → build_dashboard → 4 дашборди |
 | Accountant Daily | пн-пт 10:00 | odoo_export → finance_export → finance_digest --mode accountant |
-| Merchant Feed daily | щодня 10:00 | push_to_merchant_api --mode daily --days 2 |
-| Merchant Feed full | пн 08:00 | push_to_merchant_api --mode full (3 паралельних воркери) |
+| Merchant Feed daily | щодня 10:00 | push_to_merchant_api --mode daily → Telegram notify |
+| Merchant Feed full | пн 08:00 | push_to_merchant_api --mode full (3 воркери) → Telegram notify |
 
 ---
 
@@ -316,6 +327,72 @@ C:\Users\busau\Desktop\automobil-SEO-tools\
 - **Google Ads аналіз** (квіт–трав 2026): busauto.kh.ua ROAS 4.72 / CPA 94 ₴ (добре), automobil.in.ua ROAS 2.13 / CPA 206 ₴ (потребує оптимізації). Загальний бюджет ~103 тис ₴/міс. Проблема: дублювання PMax SHAFER між акаунтами — одну треба поставити на паузу
 - **busauto.ua — підготовка до реклами**: SEO-оптимізація зроблена (title, description, банер, фото, лічильники, футер). Блокер для запуску Google Ads — кошик сайту (UX не доопрацьований). Після готовності кошика — запуск окремої Google Ads кампанії на busauto.ua
 - **Google Ads API (2026-05-28):** Supermetrics замінено прямим Google Ads API. `gads_export.py` — новий скрипт. OAuth налаштовано через проект `busauto-merchant`. Акаунт busauto.kh.ua прив'язано до MCC "Керуючий API" (2836486392). GitHub Secrets додано (5 шт: GADS_DEVELOPER_TOKEN, GADS_CLIENT_ID, GADS_CLIENT_SECRET, GADS_REFRESH_TOKEN, GADS_LOGIN_CUSTOMER_ID). Свіжі ROAS: busauto.kh.ua 5.06x / automobil.in.ua 2.68x (30д, квіт–трав 2026).
+
+---
+
+## Сверка з постачальниками (алгоритм)
+
+### Підготовка
+- Попросити постачальника надіслати акт звірки у форматі Excel або PDF
+- Уточнити: за яким юр. особою виписаний акт (у нас 3 ФОПи — Онищенко О.В., Грохольський, Онищенко К.О.)
+- Назвати Claude: **постачальник**, **period**, **файл**. Приклад запиту:
+  > "Сверка з постачальником ЮНИК ТРЕЙД 21971, файл додаю. Зроби сверку."
+
+### Алгоритм (що робить Claude)
+1. **Парсинг файлу постачальника** — витягує накладні (РН), повернення, оплати
+2. **Пошук партнера в Odoo** — по назві або коду (`res.partner`)
+3. **Витяг даних з Odoo** — рахунок 631000, partner_id, через XML-RPC (локально!)
+4. **Порівняння підсумків** — поставки / повернення / оплати / сальдо
+5. **Матчинг по сумах** — зіставляє накладні постачальника з BILL в Odoo
+6. **Звіт у Excel** — 4 аркуші: Підсумок / Повернення / Оплати / Незіставлені рахунки
+
+### Скрипти (вже готові, лежать у папці)
+| Файл | Призначення |
+|---|---|
+| `do_reconcile.py` | Основний скрипт сверки (підсумки + Excel-звіт) |
+| `recon_detail.py` | Детальний матчинг по документах |
+| `find_diff.py` | Знаходить незакриті рядки по 631 для партнера |
+| `check_diff2.py` | Деталі конкретного рахунку + платежі за період |
+| `odoo_631_yunik.json` | Кеш даних Odoo по ЮНИК ТРЕЙД (оновлювати при новій сверці) |
+
+### Технічні нюанси Odoo
+- XML-RPC працює **тільки з локальної машини** (через PowerShell), sandbox заблокований
+- Рахунок постачальників: **631000** (id=712), `account.move.line`
+- ЮНИК ТРЕЙД 21971: `partner_id = 49228`
+- Аутентифікація: `uid=6`, `api_key` з `odoo_config.txt`
+- Повернення = `move_type = in_refund` (RBILL), Рахунки = `in_invoice` (BILL)
+- Незакриті рядки: `reconciled = False` на `account.move.line`
+
+### Типові причини розходжень (з досвіду ЮНИК ТРЕЙД, червень 2026)
+
+| Причина | Як виявити | Дія |
+|---|---|---|
+| Повернення є у постачальника, але не оформлені в Odoo | Матчинг типу "Возврат" в акті vs RBILL в Odoo | Створити кредит-ноту (RBILL) |
+| Банківські перекази не занесені в Odoo | Оплати в акті без пари в Odoo | Додати банківську виписку, узгодити |
+| Готівка не занесена в касу | Касові ордери в акті без PCSH в Odoo | Перевірити журнал каси |
+| Рахунок без ref (РН постачальника) | Поле `ref` порожнє в BILL | Відкрити BILL, уточнити РН у постачальника |
+| Часова різниця (сьогоднішні оплати) | Дата платежу = сьогодні, в акті ще немає | Ігнорувати, перевірити наступного разу |
+| Акт виписаний тільки на одного ФОПа | Порівняти назву в акті з нашими ФОПами | Запросити акти на інших ФОПів |
+| Курсові різниці (EXCH) | Журнал "Курсові різниці" в Odoo | Норма, постачальник не відображає |
+
+### Коригуюча проводка для закриття залишку
+Якщо після сверки лишилась невелика незрозуміла різниця (до ~500 ₴):
+
+**Облік → Журнальні записи → Створити:**
+
+| Ситуація | Дебет | Кредит |
+|---|---|---|
+| Ми їм трохи винні (631 кредитове сальдо) | 631000 (партнер) | 719 (Інші доходи) |
+| Вони нам трохи винні (631 дебетове сальдо) | 944 (Сумнівні витрати) | 631000 (партнер) |
+
+> ⚠️ Суми понад 500 ₴ — не списувати, розбирати по документах.
+
+### Як створити рахунок щоб він з'явився в узгодженнях банку
+1. Закупівлі → Рахунки-фактури від постачальників → Створити
+2. Заповнити: Постачальник, Дата, **Ref = номер РН від постачальника** (обов'язково!)
+3. Додати рядки з товарами або рахунком витрат
+4. Натиснути **Підтвердити**
+5. Рахунок з'явиться в Облік → Узгодження банку → список праворуч
 
 ---
 
