@@ -20,6 +20,8 @@ WH_TEMPLATE = os.path.join(SCRIPT_DIR, "warehouse_dashboard_template.html")
 FIN_OUTPUT   = os.path.join(SCRIPT_DIR, "busauto_financial_dashboard.html")
 FIN_TEMPLATE = os.path.join(SCRIPT_DIR, "financial_dashboard_template.html")
 
+GADS_OUTPUT = os.path.join(SCRIPT_DIR, "busauto_gads_dashboard.html")
+
 with open(SUMMARY, "r", encoding="utf-8") as f:
     data = json.load(f)
 
@@ -98,3 +100,92 @@ elif not os.path.exists(FIN):
     print(f"\n[!] finance_summary.json не знайдено - спершу запустіть finance_export.py")
 else:
     print(f"\n[!] Financial template не знайдено: {FIN_TEMPLATE}")
+
+# Google Ads dashboard — оновлюємо const D у файлі
+if os.path.exists(GADS) and os.path.exists(GADS_OUTPUT):
+    try:
+        with open(GADS, "r", encoding="utf-8") as f:
+            g = json.load(f)
+
+        rows = g.get("daily_by_account", [])
+        ACC = {"busauto.kh.ua": "bk", "automobil.in.ua": "au"}
+
+        # Збираємо унікальні дати
+        dates = sorted(set(r["date"] for r in rows))
+
+        # Денні дані по акаунтах
+        def daily(acc_key, field):
+            by_date = {r["date"]: r for r in rows if ACC.get(r["account"]) == acc_key}
+            return [round(by_date.get(d, {}).get(field, 0), 2) for d in dates]
+
+        def acc_totals(acc_key):
+            acc_rows = [r for r in rows if ACC.get(r["account"]) == acc_key]
+            cost  = round(sum(r.get("cost", 0) for r in acc_rows))
+            cv    = round(sum(r.get("conv_value", 0) for r in acc_rows))
+            clicks = sum(r.get("clicks", 0) for r in acc_rows)
+            impr  = sum(r.get("impressions", 0) for r in acc_rows)
+            conv  = round(sum(r.get("conversions", 0) for r in acc_rows))
+            roas  = round(cv / cost, 2) if cost else 0
+            ctr   = round(clicks / impr * 100, 2) if impr else 0
+            cpc   = round(cost / clicks, 2) if clicks else 0
+            return {"cost": cost, "cv": cv, "clicks": clicks,
+                    "impr": impr, "conv": conv, "roas": roas, "ctr": ctr, "cpc": cpc}
+
+        bk = acc_totals("bk")
+        au = acc_totals("au")
+        total_cost = bk["cost"] + au["cost"]
+        total_cv   = bk["cv"] + au["cv"]
+        D = {
+            "dates":     dates,
+            "bk_cost":   daily("bk", "cost"),
+            "au_cost":   daily("au", "cost"),
+            "bk_roas":   daily("bk", "roas") if any(r.get("roas") for r in rows) else [
+                round(r.get("conv_value", 0) / r.get("cost", 1), 2) if r.get("cost") else 0
+                for r in [next((x for x in rows if x["date"]==d and ACC.get(x["account"])=="bk"), {}) for d in dates]
+            ],
+            "au_roas":   daily("au", "roas") if any(r.get("roas") for r in rows) else [
+                round(r.get("conv_value", 0) / r.get("cost", 1), 2) if r.get("cost") else 0
+                for r in [next((x for x in rows if x["date"]==d and ACC.get(x["account"])=="au"), {}) for d in dates]
+            ],
+            "bk_clicks": daily("bk", "clicks"),
+            "au_clicks": daily("au", "clicks"),
+            "bk":    bk,
+            "au":    au,
+            "total": {"cost": total_cost, "cv": total_cv,
+                      "clicks": bk["clicks"] + au["clicks"],
+                      "conv": bk["conv"] + au["conv"],
+                      "roas": round(total_cv / total_cost, 2) if total_cost else 0},
+            "generated": g.get("generated_at", ""),
+            "period": f"{dates[0]} — {dates[-1]}" if dates else "",
+        }
+
+        # Рахуємо ROAS по днях через conv_value/cost (якщо roas не збережено в json)
+        for key, acc_key in [("bk_roas", "bk"), ("au_roas", "au")]:
+            by_date = {r["date"]: r for r in rows if ACC.get(r["account"]) == acc_key}
+            D[key] = [
+                round(by_date[d]["conv_value"] / by_date[d]["cost"], 2)
+                if by_date.get(d) and by_date[d].get("cost") else 0
+                for d in dates
+            ]
+
+        d_json = json.dumps(D, ensure_ascii=False, separators=(",", ":"))
+
+        with open(GADS_OUTPUT, "r", encoding="utf-8") as f:
+            gads_html = f.read()
+
+        # Замінюємо рядок "const D = {...};"
+        import re
+        gads_html = re.sub(r'const D = \{.*?\};', f'const D = {d_json};', gads_html, count=1)
+
+        with open(GADS_OUTPUT, "w", encoding="utf-8") as f:
+            f.write(gads_html)
+
+        size_kb = os.path.getsize(GADS_OUTPUT) / 1024
+        print(f"\n[OK] Google Ads dashboard: {GADS_OUTPUT} ({size_kb:.1f} KB)")
+        print(f"     Період: {D['period']}  |  ROAS: {D['total']['roas']}x  |  Витрати: {D['total']['cost']:,} ₴")
+    except Exception as e:
+        print(f"\n[!] Google Ads dashboard помилка: {e}")
+elif not os.path.exists(GADS):
+    print(f"\n[!] gads_summary.json не знайдено — gads_export.py не запускався або впав")
+elif not os.path.exists(GADS_OUTPUT):
+    print(f"\n[!] busauto_gads_dashboard.html не знайдено в репо")
