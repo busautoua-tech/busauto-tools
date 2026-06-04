@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install --quiet tzdata google-ads pyyaml
+        run: pip install --quiet tzdata
 
       - name: Create configs
         run: |
@@ -37,9 +37,15 @@ jobs:
           EOF
           mkdir -p dashboard_data
 
+      - name: Run Odoo export
+        run: python odoo_export.py
+        timeout-minutes: 25
+
       - name: Run Google Ads export
-        run: python gads_export.py
-        timeout-minutes: 5
+        run: |
+          pip install --quiet google-ads pyyaml
+          python gads_export.py
+        timeout-minutes: 8
         continue-on-error: true
         env:
           GADS_DEVELOPER_TOKEN: ${{ secrets.GADS_DEVELOPER_TOKEN }}
@@ -47,10 +53,6 @@ jobs:
           GADS_CLIENT_SECRET: ${{ secrets.GADS_CLIENT_SECRET }}
           GADS_REFRESH_TOKEN: ${{ secrets.GADS_REFRESH_TOKEN }}
           GADS_LOGIN_CUSTOMER_ID: ${{ secrets.GADS_LOGIN_CUSTOMER_ID }}
-
-      - name: Run Odoo export
-        run: python odoo_export.py
-        timeout-minutes: 25
 
       - name: Run Finance export
         run: python finance_export.py
