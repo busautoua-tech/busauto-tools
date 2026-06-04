@@ -85,28 +85,52 @@ def fetch_lines_by_account(models, db, uid, apikey, account_ids,
         ("date", "<=", date_to),
         ("parent_state", "=", "posted"),
     ]
+    # Маппінг українських назв місяців → номер
+    UA_MONTHS = {
+        "січ": 1, "лют": 2, "бер": 3, "квіт": 4, "трав": 5, "черв": 6,
+        "лип": 7, "серп": 8, "вер": 9, "жовт": 10, "лист": 11, "груд": 12,
+    }
+
+    def normalize_month(raw, fallback):
+        """Нормалізує date:month до YYYY-MM-01 незалежно від формату Odoo."""
+        s = str(raw or "").strip()
+        if not s:
+            return fallback
+        # MM/YYYY (Odoo en_US)
+        if "/" in s:
+            parts = s.split("/")
+            if len(parts) == 2:
+                try:
+                    return f"{parts[1].zfill(4)}-{parts[0].zfill(2)}-01"
+                except Exception:
+                    pass
+        # YYYY-MM або YYYY-MM-DD
+        if len(s) >= 7 and s[4] == "-":
+            return s[:7] + "-01"
+        # Українські назви місяців: "березня 2026", "березень 2026"
+        s_lower = s.lower()
+        for prefix, num in UA_MONTHS.items():
+            if s_lower.startswith(prefix):
+                # Знаходимо рік (4 цифри)
+                import re as _re
+                yr = _re.search(r"\d{4}", s)
+                year = yr.group() if yr else fallback[:4]
+                return f"{year}-{str(num).zfill(2)}-01"
+        return fallback
+
     try:
         groups = models.execute_kw(db, uid, apikey, "account.move.line",
             "read_group",
             [domain,
              ["account_id", "journal_id", "debit", "credit"],
              ["account_id", "journal_id", "date:month"]],
-            {"lazy": False})
+            {"lazy": False, "context": {"lang": "en_US"}})
         lines = []
         for g in groups:
             acc = g.get("account_id")
             jrn = g.get("journal_id")
-            # date:month повертає рядок "MM/YYYY" або "YYYY-MM"
             raw_date = g.get("date:month", "")
-            # Нормалізуємо до YYYY-MM-01
-            try:
-                if "/" in str(raw_date):
-                    m, y = str(raw_date).split("/")
-                    norm_date = f"{y}-{m.zfill(2)}-01"
-                else:
-                    norm_date = str(raw_date)[:7] + "-01"
-            except Exception:
-                norm_date = date_from[:7] + "-01"
+            norm_date = normalize_month(raw_date, date_from[:7] + "-01")
             lines.append({
                 "account_id": acc if isinstance(acc, list) else [acc, ""],
                 "journal_id": jrn if isinstance(jrn, list) else [jrn, ""],
