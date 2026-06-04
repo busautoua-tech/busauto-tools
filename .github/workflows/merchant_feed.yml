@@ -43,29 +43,6 @@ jobs:
       - name: Daily sync — only changed products
         run: python push_to_merchant_api.py --mode daily --days 2
 
-      - name: Notify Telegram — daily result
-        if: always()
-        run: |
-          python3 -c "
-          import urllib.request, json, subprocess
-          status = '${{ job.status }}'
-          icon = '✅' if status == 'success' else '❌'
-          try:
-            log = open('merchant_api.log').read()
-            lines = [l for l in log.splitlines() if any(k in l for k in ['Успішно','Помилок','товар','записів','Мови'])]
-            summary = '\n'.join(lines[-4:]) if lines else '\n'.join(log.splitlines()[-3:])
-          except:
-            summary = 'лог відсутній'
-          msg = (f'{icon} *Google Merchant · Daily sync*\n'
-                 f'{summary}\n\n'
-                 f'[📊 Merchant Center](https://merchants.google.com/mc/products/diagnostics?a=163800443)  '
-                 f'[📈 Google Ads](https://ads.google.com/aw/overview)')
-          data = json.dumps({'chat_id': '${{ secrets.TELEGRAM_CHAT_ID }}', 'text': msg, 'parse_mode': 'Markdown', 'disable_web_page_preview': True}).encode()
-          req = urllib.request.Request('https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage', data=data, headers={'Content-Type': 'application/json'})
-          urllib.request.urlopen(req, timeout=10)
-          print('Telegram OK')
-          " || echo "Telegram notify failed (non-critical)"
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
