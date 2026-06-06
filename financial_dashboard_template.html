@@ -163,6 +163,62 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     </div>
   </section>
 
+  <!-- ═══════════════════ ПЕРСОНАЛ ═══════════════════ -->
+  <section style="margin-bottom:var(--gap)">
+    <h2 style="font-size:15px;font-weight:700;margin-bottom:var(--gap);color:var(--text-primary)">
+      👥 Витрати на персонал
+    </h2>
+
+    <!-- KPI картки персоналу -->
+    <div class="kpi-row" style="margin-bottom:var(--gap)">
+      <div class="kpi-card warn">
+        <div class="kpi-label">Зарплата (Odoo 661) / міс</div>
+        <div class="kpi-value" id="pr-salary-mo">—</div>
+        <div class="kpi-change muted" id="pr-salary-yr">за рік: —</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-label">ЄСВ (Odoo 65*) / міс</div>
+        <div class="kpi-value" id="pr-esv-mo">—</div>
+        <div class="kpi-change muted" id="pr-esv-yr">за рік: —</div>
+      </div>
+      <div class="kpi-card muted">
+        <div class="kpi-label">Агенції реклами / міс</div>
+        <div class="kpi-value" id="pr-agency-mo">—</div>
+        <div class="kpi-change muted" id="pr-agency-yr">за рік: —</div>
+      </div>
+      <div class="kpi-card alert">
+        <div class="kpi-label">Всього персонал / міс</div>
+        <div class="kpi-value" id="pr-total-mo">—</div>
+        <div class="kpi-change muted" id="pr-pct-opex">% від OpEx: —</div>
+      </div>
+    </div>
+
+    <div class="chart-row">
+      <!-- Графік зарплата по місяцях -->
+      <div class="chart-container">
+        <h3>Зарплата + ЄСВ по місяцях (з Odoo)</h3>
+        <canvas id="payroll-chart"></canvas>
+      </div>
+
+      <!-- Таблиця розбивки -->
+      <div class="table-section" style="margin-bottom:0">
+        <h3>Розбивка витрат на персонал</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Категорія</th>
+              <th>Джерело</th>
+              <th class="num">На місяць</th>
+              <th class="num">На рік</th>
+            </tr>
+          </thead>
+          <tbody id="pr-breakdown-tbody"></tbody>
+          <tfoot id="pr-breakdown-tfoot"></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <footer class="dashboard-footer">
     Джерело: oDoo (account.move.line) · оновлено: <span id="data-date"></span>
   </footer>
@@ -191,6 +247,7 @@ class FinanceDashboard{
     this.renderKPIs();
     this.renderCharts();
     this.renderTables();
+    this.renderPayroll();
   }
   renderCallouts(){
     const c=document.getElementById('callouts');
@@ -384,6 +441,85 @@ class FinanceDashboard{
     });
     html+='</tbody></table>';
     return html;
+  }
+
+  renderPayroll(){
+    const pr = this.fin.payroll;
+    if(!pr) return;
+
+    const fmt = v => Math.round(v).toLocaleString('uk-UA') + ' ₴';
+
+    // KPI картки
+    const am = pr.avg_monthly;
+    const tot = pr.total;
+    const opex = this.fin.total_period.opex || 1;
+    const totalPersonnelYear = tot.payroll_and_esv + pr.agencies_annual;
+    const pctOpex = (totalPersonnelYear / opex * 100).toFixed(1);
+
+    document.getElementById('pr-salary-mo').textContent  = fmt(am.salary);
+    document.getElementById('pr-salary-yr').textContent  = 'за рік: ' + fmt(tot.salary);
+    document.getElementById('pr-esv-mo').textContent     = fmt(am.esv);
+    document.getElementById('pr-esv-yr').textContent     = 'за рік: ' + fmt(tot.esv);
+    document.getElementById('pr-agency-mo').textContent  = fmt(pr.agencies_monthly);
+    document.getElementById('pr-agency-yr').textContent  = 'за рік: ' + fmt(pr.agencies_annual);
+    document.getElementById('pr-total-mo').textContent   = fmt(pr.total_personnel_monthly);
+    document.getElementById('pr-pct-opex').textContent   = `% від OpEx: ${pctOpex}%`;
+
+    // Графік — зарплата + ЄСВ по місяцях
+    if(pr.monthly && pr.monthly.length){
+      const labels = pr.monthly.map(m => ymToLabel(m.month));
+      const salData = pr.monthly.map(m => Math.round(m.salary));
+      const esvData = pr.monthly.map(m => Math.round(m.esv));
+      new Chart(document.getElementById('payroll-chart').getContext('2d'),{
+        type:'bar',
+        data:{
+          labels,
+          datasets:[
+            {label:'Зарплата (661)',data:salData,backgroundColor:'#3b82f6',stack:'s'},
+            {label:'ЄСВ (65*)',    data:esvData, backgroundColor:'#f59e0b',stack:'s'},
+          ]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:true,
+          plugins:{legend:{position:'top'},
+            tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString('uk-UA')} ₴`}}},
+          scales:{
+            x:{stacked:true},
+            y:{stacked:true,ticks:{callback:v=>Math.round(v/1000)+'к'}}
+          }
+        }
+      });
+    }
+
+    // Таблиця розбивки
+    const tbody = document.getElementById('pr-breakdown-tbody');
+    const rows = [
+      ['Зарплата співробітників','Odoo рах.661', am.salary, tot.salary],
+      ['ЄСВ та соц.страхування','Odoo рах.65*',  am.esv,    tot.esv],
+    ];
+    // Агенції
+    (pr.agencies||[]).forEach(a=>{
+      rows.push([a.name, 'вручну', a.monthly, a.monthly*12]);
+    });
+
+    tbody.innerHTML = rows.map(([name,src,mo,yr])=>
+      `<tr>
+        <td>${name}</td>
+        <td><span style="font-size:11px;color:var(--text-secondary)">${src}</span></td>
+        <td class="num">${fmt(mo)}</td>
+        <td class="num">${fmt(yr)}</td>
+      </tr>`
+    ).join('');
+
+    // Підсумок
+    const totalMo = am.total + pr.agencies_monthly;
+    const totalYr = tot.payroll_and_esv + pr.agencies_annual;
+    document.getElementById('pr-breakdown-tfoot').innerHTML =
+      `<tr style="font-weight:700;border-top:2px solid #e9ecef">
+        <td>РАЗОМ</td><td></td>
+        <td class="num">${fmt(totalMo)}</td>
+        <td class="num">${fmt(totalYr)}</td>
+      </tr>`;
   }
 }
 

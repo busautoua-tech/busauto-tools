@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BusAuto — Google Ads Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous"></script>
+<script>window.addEventListener('error', function(e){ if(e.target && e.target.tagName==='SCRIPT'){ document.body.insertAdjacentHTML('afterbegin','<div style="color:red;padding:10px">Chart.js не завантажився. Відкрий файл через сервер або браузер.</div>'); } }, true);</script>
 <style>
   :root {
     --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a;
@@ -46,7 +47,8 @@
   .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
   .chart-card.wide { grid-column: 1 / -1; }
   .chart-card h4 { font-size: 0.82rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 14px; }
-  .chart-wrap { height: 240px; position: relative; }
+  .chart-wrap { height: 240px; position: relative; display: block; }
+  .chart-wrap canvas { position: absolute !important; top: 0; left: 0; width: 100% !important; height: 100% !important; }
   .legend { display: flex; gap: 16px; margin-top: 8px; }
   .legend span { font-size: 0.76rem; color: var(--muted); display: flex; align-items: center; gap: 5px; }
   .legend span::before { content:''; width:12px; height:3px; border-radius:2px; display:inline-block; }

@@ -587,6 +587,92 @@ def main():
     }
 
     # ============================================================
+    # 9. Зарплата (рах. 661) та ЄСВ (рах. 65*)
+    # ============================================================
+    log(f"\n[9/9] Зарплата та ЄСВ...")
+    payroll_acc_ids = [a["id"] for a in accounts
+                       if (a.get("code") or "").startswith("661")]
+    esv_acc_ids     = [a["id"] for a in accounts
+                       if (a.get("code") or "").startswith("65")
+                       and not (a.get("code") or "").startswith("651000")  # пропускаємо якщо потрібно
+                       and a["id"] not in payroll_acc_ids]
+    # Включаємо всі 65* (651-659 = ЄСВ та соціальне страхування)
+    esv_acc_ids = [a["id"] for a in accounts
+                   if (a.get("code") or "").startswith("65")
+                   and a["id"] not in payroll_acc_ids]
+
+    log(f"      661 рахунків: {len(payroll_acc_ids)},  65* рахунків: {len(esv_acc_ids)}")
+
+    payroll_lines_raw = []
+    esv_lines_raw = []
+    if payroll_acc_ids:
+        payroll_lines_raw = fetch_lines_by_account(
+            models, db, uid, apikey, payroll_acc_ids, period_start, period_end)
+    if esv_acc_ids:
+        esv_lines_raw = fetch_lines_by_account(
+            models, db, uid, apikey, esv_acc_ids, period_start, period_end)
+
+    # Credit на 661/651 = нарахована зарплата/ЄСВ (= витрата)
+    payroll_by_month = defaultdict(float)
+    esv_by_month     = defaultdict(float)
+
+    for l in payroll_lines_raw:
+        d = (l.get("date") or "")[:7]
+        if d:
+            payroll_by_month[d] += (l.get("credit", 0) or 0)
+
+    for l in esv_lines_raw:
+        d = (l.get("date") or "")[:7]
+        if d:
+            esv_by_month[d] += (l.get("credit", 0) or 0)
+
+    all_pay_months = sorted(set(list(payroll_by_month.keys()) + list(esv_by_month.keys())))
+    payroll_monthly_list = []
+    for ym in all_pay_months:
+        sal  = payroll_by_month.get(ym, 0.0)
+        esv  = esv_by_month.get(ym, 0.0)
+        payroll_monthly_list.append({
+            "month": ym,
+            "salary": round(sal, 2),
+            "esv":    round(esv, 2),
+            "total":  round(sal + esv, 2),
+        })
+
+    payroll_total_salary = round(sum(payroll_by_month.values()), 2)
+    payroll_total_esv    = round(sum(esv_by_month.values()), 2)
+    months_count = max(len(all_pay_months), 1)
+
+    # Зовнішні агенції (вручну) — фіксовані витрати на рекламні агенції
+    AGENCIES = [
+        {"name": "PPCexperts (automobil.in.ua)", "monthly": 10000},
+        {"name": "Internetsolutions (busauto.kh.ua)", "monthly": 10000},
+    ]
+    agencies_monthly = sum(a["monthly"] for a in AGENCIES)
+    agencies_annual  = agencies_monthly * 12
+
+    payroll_data = {
+        "monthly": payroll_monthly_list,
+        "total": {
+            "salary":           payroll_total_salary,
+            "esv":              payroll_total_esv,
+            "payroll_and_esv":  round(payroll_total_salary + payroll_total_esv, 2),
+        },
+        "avg_monthly": {
+            "salary":           round(payroll_total_salary / months_count, 2),
+            "esv":              round(payroll_total_esv / months_count, 2),
+            "total":            round((payroll_total_salary + payroll_total_esv) / months_count, 2),
+        },
+        "agencies": AGENCIES,
+        "agencies_monthly": agencies_monthly,
+        "agencies_annual":  agencies_annual,
+        "total_personnel_monthly": round(
+            (payroll_total_salary + payroll_total_esv) / months_count + agencies_monthly, 2),
+    }
+    log(f"      Зарплата (12 міс): {payroll_total_salary:,.0f} ₴  |  "
+        f"ЄСВ: {payroll_total_esv:,.0f} ₴  |  "
+        f"Сер/міс: {payroll_data['avg_monthly']['total']:,.0f} ₴")
+
+    # ============================================================
     # Збираємо результат
     # ============================================================
     summary = {
@@ -611,6 +697,7 @@ def main():
                            "balance": -c["balance"]}
                           for c in top_creditors],
         "cashflow": cashflow,
+        "payroll": payroll_data,
     }
 
     # Save

@@ -1,24 +1,35 @@
 @echo off
 chcp 65001 > nul
+
 echo ================================================
-echo  BusAuto — Оновлення Google Ads refresh token
+echo  BusAuto - Google Ads Token Refresh
 echo ================================================
 echo.
-echo Крок 1: Відкриється браузер → дозволь доступ до Google Ads
-echo Крок 2: Скопіюй новий refresh_token з консолі
-echo Крок 3: Встав його в mcp-google-ads\google-ads.yaml
-echo         (рядок: refresh_token: ВАШ_НОВИЙ_ТОКЕН)
-echo Крок 4: Додай також як GitHub Secret: GADS_REFRESH_TOKEN
+echo Step 1: Browser will open - allow Google Ads access
+echo Step 2: Copy new refresh_token from console output
+echo Step 3: Paste into mcp-google-ads\google-ads.yaml
+echo         (line: refresh_token: YOUR_NEW_TOKEN)
+echo Step 4: Add to GitHub Secret: GADS_REFRESH_TOKEN
 echo.
 pause
 
-cd /d "%~dp0mcp-google-ads"
-.venv\Scripts\python.exe generate_refresh_token.py -c credentials.json
+set "SCRIPT_DIR=%~dp0"
+set "VENV_PYTHON=%SCRIPT_DIR%mcp-google-ads\.venv\Scripts\python.exe"
+set "TOKEN_SCRIPT=%SCRIPT_DIR%mcp-google-ads\generate_refresh_token.py"
+set "CREDENTIALS=%SCRIPT_DIR%mcp-google-ads\credentials.json"
+
+echo Running: %VENV_PYTHON%
+echo Script:  %TOKEN_SCRIPT%
+echo Creds:   %CREDENTIALS%
+echo.
+
+"%VENV_PYTHON%" "%TOKEN_SCRIPT%" -c "%CREDENTIALS%"
 
 echo.
 echo ================================================
-echo  Готово! Скопіюй refresh_token вище і встав у:
-echo  mcp-google-ads\google-ads.yaml (рядок refresh_token)
-echo  Та в GitHub Secrets: Settings - Secrets - GADS_REFRESH_TOKEN
+echo  Done! Copy the refresh_token printed above.
+echo  Paste it into:
+echo  1) mcp-google-ads\google-ads.yaml
+echo  2) GitHub Secrets - GADS_REFRESH_TOKEN
 echo ================================================
 pause
