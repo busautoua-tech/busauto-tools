@@ -143,10 +143,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <h3>Все товары на складе с ABC-классом</h3>
     <div class="filter-bar">
       <span style="font-size:13px;color:var(--text-secondary)">Фильтр:</span>
-      <button class="filter-btn active" data-cls="all" onclick="dash.filterAbc('all')">Все</button>
-      <button class="filter-btn" data-cls="A" onclick="dash.filterAbc('A')">A — звёзды</button>
+      <button class="filter-btn active" data-cls="all" onclick="dash.filterAbc('all')">Всі</button>
+      <button class="filter-btn" data-cls="A" onclick="dash.filterAbc('A')">A — зірки</button>
       <button class="filter-btn" data-cls="B" onclick="dash.filterAbc('B')">B — середняки</button>
-      <button class="filter-btn" data-cls="C" onclick="dash.filterAbc('C')">C — балласт</button>
+      <button class="filter-btn" data-cls="C" onclick="dash.filterAbc('C')">C — баласт</button>
+      <button class="filter-btn" data-cls="regular" onclick="dash.filterAbc('regular')" style="border-color:#22c55e;color:#16a34a" title="Товари з 3+ замовленнями за 90 днів — стабільний попит">🔄 Регулярний попит</button>
     </div>
     <div id="abc-products"></div>
   </section>
@@ -404,9 +405,16 @@ class WarehouseDashboard{
     const wh=this.summary.warehouse_abc;
     const all=wh.products||[];
     const cls=this.activeAbcCls;
-    const list=cls==='all'?all.slice(0,100):all.filter(p=>p.abc_class===cls).slice(0,100);
+    let list;
+    if(cls==='regular'){
+      list=all.filter(p=>p.is_regular_demand).slice(0,200);
+    } else if(cls==='all'){
+      list=all.slice(0,100);
+    } else {
+      list=all.filter(p=>p.abc_class===cls).slice(0,100);
+    }
     let html='<table class="data-table"><thead><tr>'
-      +'<th>#</th><th>Клас</th><th>Артикул</th><th>Товар</th>'
+      +'<th>#</th><th>Клас</th><th>Попит<br>90д</th><th>Артикул</th><th>Товар</th>'
       +'<th class="num">Прод.</th><th class="num">Виручка</th>'
       +'<th class="num">Cum. %</th><th class="num">Залишок</th>'
       +'<th class="num">Очікується</th><th class="num">Резерв</th>'
@@ -420,6 +428,9 @@ class WarehouseDashboard{
       const dlv=p.days_left_virtual;
       const dlClass=dl===null?'gray':p.units_sold===0?'red':dl<14?'red':dl<30?'amber':dl>90?'red':'green';
       const dlvClass=dlv===null?'gray':p.units_sold===0?'red':dlv<14?'red':dlv<30?'amber':dlv>90?'red':'green';
+      const oc=p.order_count_90d||0;
+      const demandLabel=oc>=3?'Регулярний':oc>=1?'Рідкий':'Немає';
+      const demandClass=oc>=3?'green':oc>=1?'amber':'gray';
       // Incoming with arrival date tooltip
       let incomingCell;
       if(p.incoming_qty > 0){
@@ -434,6 +445,7 @@ class WarehouseDashboard{
       html+='<tr>'
         +'<td>'+(i+1)+'</td>'
         +'<td><span class="badge '+clsBadge+'">'+p.abc_class+'</span></td>'
+        +'<td><span class="badge '+demandClass+'" title="Замовлень за 90 днів: '+oc+'">'+demandLabel+(oc>0?' ('+oc+')':'')+'</span></td>'
         +'<td><span class="code">'+(p.default_code||'—')+'</span></td>'
         +'<td>'+(p.name||'').substring(0,60)+'</td>'
         +'<td class="num">'+fmtNum(p.units_sold)+'</td>'

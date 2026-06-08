@@ -469,6 +469,38 @@ def _find_next_arrivals(models, db, uid, apikey, location_id, product_ids):
     return arrivals
 
 
+def export_order_counts_90d(models, db, uid, apikey):
+    """
+    Підраховує кількість рядків замовлень на кожен товар за останні 90 днів.
+    Використовує read_group — швидко, без завантаження всіх рядків.
+    Повертає dict {product_id: order_line_count}.
+    3+ рядків = регулярний попит (товар купують стабільно).
+    """
+    since_90 = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+    log(f"      [90д] Рахую замовлення по товарах (з {since_90})...")
+    domain = [
+        ["order_id.date_order", ">=", since_90],
+        ["order_id.state", "in", ["sale", "done"]],
+    ]
+    try:
+        result = models.execute_kw(db, uid, apikey, "sale.order.line",
+            "read_group",
+            [domain, ["product_id"], ["product_id"]],
+            {"lazy": False})
+        counts = {}
+        for r in result:
+            pf = r.get("product_id")
+            pid = pf[0] if isinstance(pf, list) and pf else pf
+            if pid:
+                counts[pid] = r.get("product_id_count", 0) or 0
+        regular = sum(1 for v in counts.values() if v >= 3)
+        log(f"      [90д] {len(counts)} SKU з продажами, з них регулярних (3+): {regular}")
+        return counts
+    except Exception as e:
+        log(f"[WARN] export_order_counts_90d впав: {e}")
+        return {}
+
+
 def export_returns(models, db, uid, apikey, since_date):
     """
     Повернення / скасовані замовлення.
@@ -538,7 +570,7 @@ def export_stock(models, db, uid, apikey):
 
 def build_summary(orders, lines, products, returns_data=None, partners=None,
                   warehouse_qty=None, warehouse_name=None, stuck_pickings=None,
-                  yoy_orders=None):
+                  yoy_orders=None, order_counts_90d=None):
     prod_by_id = {p["id"]: p for p in products}
     returns_data = returns_data or {"cancelled": [], "refunds": []}
     partners = partners or []
@@ -546,6 +578,7 @@ def build_summary(orders, lines, products, returns_data=None, partners=None,
     warehouse_qty = warehouse_qty or {}
     stuck_pickings = stuck_pickings or []
     yoy_orders = yoy_orders or []
+    order_counts_90d = order_counts_90d or {}
 
     def src_name_static(rec, key):
         v = rec.get(key)
@@ -863,6 +896,8 @@ def build_summary(orders, lines, products, returns_data=None, partners=None,
                 "days_left_virtual": round(days_left_virt, 1) if days_left_virt is not None else None,
                 "suggested_order_qty": int(suggested_order),
                 "suggested_order_value": round(suggested_order * cost, 2),
+                "order_count_90d": order_counts_90d.get(pid, 0),
+                "is_regular_demand": order_counts_90d.get(pid, 0) >= 3,
             })
         # Sort by revenue and assign ABC
         in_stock_products.sort(key=lambda x: x["revenue"], reverse=True)
@@ -1083,6 +1118,9 @@ def main():
         warehouse_qty = {}
         shev_name = None
 
+    log(f"[7/8] Рахую регулярний попит за 90 днів...")
+    order_counts_90d = export_order_counts_90d(models, db, uid, apikey)
+
     stock = export_stock(models, db, uid, apikey)
     returns = export_returns(models, db, uid, apikey, since_date)
 
@@ -1097,6 +1135,7 @@ def main():
     summary = build_summary(orders, lines, products, returns, partners,
                             warehouse_qty=warehouse_qty,
                             warehouse_name=shev_name,
+                            order_counts_90d=order_counts_90d,
                             stuck_pickings=stuck_pickings,
                             yoy_orders=yoy_orders)
     save_json(summary, "summary.json")
