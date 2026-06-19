@@ -11,7 +11,7 @@
     --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a;
     --text: #e2e8f0; --muted: #8892a4; --accent: #4f8ef7;
     --green: #22c55e; --yellow: #f59e0b; --red: #ef4444;
-    --bk: #4f8ef7; --au: #a78bfa;
+    --bk: #4f8ef7; --au: #a78bfa; --bu: #22c55e;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; padding: 20px; }
@@ -28,7 +28,7 @@
   .kpi.red .value { color: var(--red); }
   .kpi.blue .value { color: var(--accent); }
 
-  .acc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .acc-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
   .acc-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
   .acc-card h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -54,9 +54,13 @@
   .legend span::before { content:''; width:12px; height:3px; border-radius:2px; display:inline-block; }
   .leg-bk::before { background: var(--bk); }
   .leg-au::before { background: var(--au); }
+  .leg-bu::before { background: var(--bu); }
 
   footer { text-align: center; color: var(--muted); font-size: 0.75rem; margin-top: 8px; }
 
+  @media (max-width: 900px) {
+    .acc-grid { grid-template-columns: 1fr 1fr; }
+  }
   @media (max-width: 640px) {
     .acc-grid, .charts-grid { grid-template-columns: 1fr; }
     .chart-card.wide { grid-column: 1; }
@@ -87,7 +91,7 @@
   <div class="kpi blue">
     <div class="label">&#1050;&#1083;&#1110;&#1082;&#1080;</div>
     <div class="value" id="kpi-clicks"></div>
-    <div class="sub">&#1089;&#1091;&#1084;&#1072; &#1086;&#1073;&#1086;&#1093; &#1072;&#1082;&#1072;&#1091;&#1085;&#1090;&#1110;&#1074;</div>
+    <div class="sub">&#1089;&#1091;&#1084;&#1072; 3 &#1072;&#1082;&#1072;&#1091;&#1085;&#1090;&#1110;&#1074;</div>
   </div>
   <div class="kpi green">
     <div class="label">&#1050;&#1086;&#1085;&#1074;&#1077;&#1088;&#1089;&#1110;&#1111;</div>
@@ -110,6 +114,10 @@
     <h3><span class="dot" style="background:var(--au)"></span>automobil.in.ua <span style="color:var(--muted);font-weight:400;font-size:0.78rem">569-139-9829</span></h3>
     <div class="acc-rows" id="au-rows"></div>
   </div>
+  <div class="acc-card">
+    <h3><span class="dot" style="background:var(--bu)"></span>busauto.ua <span style="color:var(--muted);font-weight:400;font-size:0.78rem">932-989-8660</span></h3>
+    <div class="acc-rows" id="bu-rows"></div>
+  </div>
 </div>
 
 <div class="alerts" id="alerts"></div>
@@ -118,17 +126,17 @@
   <div class="chart-card wide">
     <h4>&#1044;&#1077;&#1085;&#1085;&#1110; &#1074;&#1080;&#1090;&#1088;&#1072;&#1090;&#1080; (&#8372;)</h4>
     <div class="chart-wrap"><canvas id="costChart"></canvas></div>
-    <div class="legend"><span class="leg-bk">busauto.kh.ua</span><span class="leg-au">automobil.in.ua</span></div>
+    <div class="legend"><span class="leg-bk">busauto.kh.ua</span><span class="leg-au">automobil.in.ua</span><span class="leg-bu">busauto.ua</span></div>
   </div>
   <div class="chart-card">
     <h4>&#1044;&#1077;&#1085;&#1085;&#1080;&#1081; ROAS</h4>
     <div class="chart-wrap"><canvas id="roasChart"></canvas></div>
-    <div class="legend"><span class="leg-bk">busauto.kh.ua</span><span class="leg-au">automobil.in.ua</span></div>
+    <div class="legend"><span class="leg-bk">busauto.kh.ua</span><span class="leg-au">automobil.in.ua</span><span class="leg-bu">busauto.ua</span></div>
   </div>
   <div class="chart-card">
     <h4>&#1044;&#1077;&#1085;&#1085;&#1110; &#1082;&#1083;&#1110;&#1082;&#1080;</h4>
     <div class="chart-wrap"><canvas id="clicksChart"></canvas></div>
-    <div class="legend"><span class="leg-bk">busauto.kh.ua</span><span class="leg-au">automobil.in.ua</span></div>
+    <div class="legend"><span class="leg-bk">busauto.kh.ua</span><span class="leg-au">automobil.in.ua</span><span class="leg-bu">busauto.ua</span></div>
   </div>
 </div>
 
@@ -173,6 +181,7 @@ function renderAccRows(id, a) {
 }
 renderAccRows('bk-rows', D.bk);
 renderAccRows('au-rows', D.au);
+if (D.bu) renderAccRows('bu-rows', D.bu);
 
 const alerts = [];
 if (D.bk.roas >= 4) alerts.push({type:'good',   ico:'✅', txt:'busauto.kh.ua ROAS '+D.bk.roas+'x — відмінно (ціль ≥4.0x)'});
@@ -180,10 +189,19 @@ else                alerts.push({type:'warn',   ico:'⚠️', txt:'busauto.kh.ua
 if (D.au.roas >= 4) alerts.push({type:'good',   ico:'✅', txt:'automobil.in.ua ROAS '+D.au.roas+'x — відмінно'});
 else if (D.au.roas >= 2) alerts.push({type:'warn', ico:'⚠️', txt:'automobil.in.ua ROAS '+D.au.roas+'x — є резерв для зростання'});
 else                alerts.push({type:'danger', ico:'🔴', txt:'automobil.in.ua ROAS '+D.au.roas+'x — потребує оптимізації'});
+if (D.bu && D.bu.cost > 0) {
+  if (D.bu.roas >= 4) alerts.push({type:'good',   ico:'✅', txt:'busauto.ua ROAS '+D.bu.roas+'x — відмінно'});
+  else if (D.bu.roas >= 2) alerts.push({type:'warn', ico:'⚠️', txt:'busauto.ua ROAS '+D.bu.roas+'x — є резерв для зростання'});
+  else if (D.bu.roas > 0)  alerts.push({type:'danger', ico:'🔴', txt:'busauto.ua ROAS '+D.bu.roas+'x — потребує оптимізації'});
+  else                     alerts.push({type:'warn', ico:'🆕', txt:'busauto.ua — кампанія запущена, дані накопичуються'});
+} else if (D.bu) {
+  alerts.push({type:'warn', ico:'🆕', txt:'busauto.ua — акаунт підключено, реклама ще не запущена'});
+}
 const bkShare = Math.round(D.bk.cost / D.total.cost * 100);
 const bkCvShare = Math.round(D.bk.cv / D.total.cv * 100);
 alerts.push({type:'good', ico:'📊', txt:'busauto.kh.ua: '+bkShare+'% бюджету → '+bkCvShare+'% доходу'});
-alerts.push({type:'good', ico:'💰', txt:'Загальний ROAS 4.30x — поріг досягнуто (ціль ≥4.0x) ✅'});
+const roasLabel = D.total.roas.toFixed(2);
+alerts.push({type: D.total.roas >= 4 ? 'good' : 'warn', ico:'💰', txt:'Загальний ROAS '+roasLabel+'x'+(D.total.roas >= 4 ? ' — поріг досягнуто (ціль ≥4.0x) ✅' : ' — ціль 4.0x')});
 
 document.getElementById('alerts').innerHTML = alerts.map(a =>
   '<div class="alert '+a.type+'"><span class="ico">'+a.ico+'</span><span>'+a.txt+'</span></div>'
@@ -207,6 +225,7 @@ new Chart(document.getElementById('costChart'), {
     datasets: [
       { label:'busauto.kh.ua',   data:D.bk_cost, backgroundColor:'rgba(79,142,247,.75)', borderRadius:3 },
       { label:'automobil.in.ua', data:D.au_cost, backgroundColor:'rgba(167,139,250,.75)', borderRadius:3 },
+      { label:'busauto.ua',      data:D.bu_cost||[], backgroundColor:'rgba(34,197,94,.75)', borderRadius:3 },
     ]
   },
   options: Object.assign({}, OPTS, { plugins: Object.assign({}, OPTS.plugins, {
@@ -223,6 +242,7 @@ new Chart(document.getElementById('roasChart'), {
     datasets: [
       { label:'busauto.kh.ua',   data:D.bk_roas, borderColor:'#4f8ef7', backgroundColor:'rgba(79,142,247,.08)', tension:.35, pointRadius:2, borderWidth:2 },
       { label:'automobil.in.ua', data:D.au_roas, borderColor:'#a78bfa', backgroundColor:'rgba(167,139,250,.08)', tension:.35, pointRadius:2, borderWidth:2 },
+      { label:'busauto.ua',      data:D.bu_roas||[], borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.08)', tension:.35, pointRadius:2, borderWidth:2 },
       { label:'Ціль 4x', data:labels.map(()=>4), borderColor:'rgba(34,197,94,.4)', borderDash:[6,3], pointRadius:0, borderWidth:1 },
     ]
   },
@@ -238,6 +258,7 @@ new Chart(document.getElementById('clicksChart'), {
     datasets: [
       { label:'busauto.kh.ua',   data:D.bk_clicks, borderColor:'#4f8ef7', backgroundColor:'rgba(79,142,247,.08)', tension:.35, pointRadius:2, borderWidth:2, fill:true },
       { label:'automobil.in.ua', data:D.au_clicks, borderColor:'#a78bfa', backgroundColor:'rgba(167,139,250,.08)', tension:.35, pointRadius:2, borderWidth:2, fill:true },
+      { label:'busauto.ua',      data:D.bu_clicks||[], borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.08)', tension:.35, pointRadius:2, borderWidth:2, fill:true },
     ]
   },
   options: OPTS

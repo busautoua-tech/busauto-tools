@@ -108,7 +108,7 @@ if os.path.exists(GADS) and os.path.exists(GADS_OUTPUT):
             g = json.load(f)
 
         rows = g.get("daily_by_account", [])
-        ACC = {"busauto.kh.ua": "bk", "automobil.in.ua": "au"}
+        ACC = {"busauto.kh.ua": "bk", "automobil.in.ua": "au", "busauto.ua": "bu"}
 
         # Збираємо унікальні дати
         dates = sorted(set(r["date"] for r in rows))
@@ -133,34 +133,30 @@ if os.path.exists(GADS) and os.path.exists(GADS_OUTPUT):
 
         bk = acc_totals("bk")
         au = acc_totals("au")
-        total_cost = bk["cost"] + au["cost"]
-        total_cv   = bk["cv"] + au["cv"]
+        bu = acc_totals("bu")
+        total_cost = bk["cost"] + au["cost"] + bu["cost"]
+        total_cv   = bk["cv"] + au["cv"] + bu["cv"]
         D = {
             "dates":     dates,
             "bk_cost":   daily("bk", "cost"),
             "au_cost":   daily("au", "cost"),
-            "bk_roas":   daily("bk", "roas") if any(r.get("roas") for r in rows) else [
-                round(r.get("conv_value", 0) / r.get("cost", 1), 2) if r.get("cost") else 0
-                for r in [next((x for x in rows if x["date"]==d and ACC.get(x["account"])=="bk"), {}) for d in dates]
-            ],
-            "au_roas":   daily("au", "roas") if any(r.get("roas") for r in rows) else [
-                round(r.get("conv_value", 0) / r.get("cost", 1), 2) if r.get("cost") else 0
-                for r in [next((x for x in rows if x["date"]==d and ACC.get(x["account"])=="au"), {}) for d in dates]
-            ],
+            "bu_cost":   daily("bu", "cost"),
             "bk_clicks": daily("bk", "clicks"),
             "au_clicks": daily("au", "clicks"),
+            "bu_clicks": daily("bu", "clicks"),
             "bk":    bk,
             "au":    au,
+            "bu":    bu,
             "total": {"cost": total_cost, "cv": total_cv,
-                      "clicks": bk["clicks"] + au["clicks"],
-                      "conv": bk["conv"] + au["conv"],
+                      "clicks": bk["clicks"] + au["clicks"] + bu["clicks"],
+                      "conv": bk["conv"] + au["conv"] + bu["conv"],
                       "roas": round(total_cv / total_cost, 2) if total_cost else 0},
             "generated": g.get("generated_at", ""),
             "period": f"{dates[0]} — {dates[-1]}" if dates else "",
         }
 
-        # Рахуємо ROAS по днях через conv_value/cost (якщо roas не збережено в json)
-        for key, acc_key in [("bk_roas", "bk"), ("au_roas", "au")]:
+        # Рахуємо ROAS по днях через conv_value/cost
+        for key, acc_key in [("bk_roas", "bk"), ("au_roas", "au"), ("bu_roas", "bu")]:
             by_date = {r["date"]: r for r in rows if ACC.get(r["account"]) == acc_key}
             D[key] = [
                 round(by_date[d]["conv_value"] / by_date[d]["cost"], 2)

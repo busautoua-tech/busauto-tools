@@ -25,6 +25,7 @@ YAML_LOCAL   = os.path.join(SCRIPT_DIR, "mcp-google-ads", "google-ads.yaml")
 ACCOUNT_IDS = {
     "4884912382": "busauto.kh.ua",
     "5691399829": "automobil.in.ua",
+    "9329898660": "busauto.ua",
 }
 LOGIN_CUSTOMER_ID = "2836486392"
 
