@@ -54,7 +54,7 @@ jobs:
   full-sync:
     name: Full sync — worker ${{ matrix.worker }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 350
     # Запускається в понеділок або вручну з mode=full
     if: |
       (github.event_name == 'schedule' && github.event.schedule == '0 5 * * 1') ||
