@@ -673,6 +673,85 @@ def main():
         f"Сер/міс: {payroll_data['avg_monthly']['total']:,.0f} ₴")
 
     # ============================================================
+    # 10. Витрати на маркетплейси (631/93 по контрагентах)
+    # ============================================================
+    log(f"\n[10/10] Витрати на маркетплейси...")
+
+    # Конфігурація маркетплейсів: назва, ключове слово в імені партнера, рахунок (prefix)
+    MARKETPLACE_CFG = [
+        {"key": "prom",    "label": "Prom.ua",   "partner_kw": "УАПРОМ",  "account_prefix": "631"},
+        {"key": "rozetka", "label": "Rozetka",   "partner_kw": "ROZETKA", "account_prefix": "631"},
+        {"key": "avto",    "label": "Avto.pro",  "partner_kw": "Avto.pro","account_prefix": "93"},
+    ]
+
+    def fetch_marketplace_expenses(partner_keyword, account_prefix):
+        """Витрати на маркетплейс: дебет по рахунку account_prefix для партнера з keyword."""
+        try:
+            # Знаходимо partner_id за ключовим словом
+            partners_found = models.execute_kw(db, uid, apikey,
+                "res.partner", "search_read",
+                [[["name", "ilike", partner_keyword]]],
+                {"fields": ["id", "name"], "limit": 10})
+            if not partners_found:
+                log(f"      Партнер '{partner_keyword}' не знайдений")
+                return [], 0.0
+            partner_ids = [p["id"] for p in partners_found]
+            log(f"      '{partner_keyword}' → {[p['name'] for p in partners_found]}")
+
+            # Знаходимо рахунки за префіксом
+            acc_ids = [a["id"] for a in accounts
+                       if (a.get("code") or "").startswith(account_prefix)]
+            if not acc_ids:
+                log(f"      Рахунки {account_prefix}* не знайдені")
+                return [], 0.0
+
+            # Читаємо проводки: дебет = витрата
+            domain = [
+                ("account_id", "in", acc_ids),
+                ("partner_id", "in", partner_ids),
+                ("date", ">=", period_start),
+                ("date", "<=", period_end),
+                ("parent_state", "=", "posted"),
+            ]
+            line_ids = models.execute_kw(db, uid, apikey,
+                "account.move.line", "search", [domain], {"limit": 5000})
+            if not line_ids:
+                return [], 0.0
+            lines = models.execute_kw(db, uid, apikey,
+                "account.move.line", "read",
+                [line_ids, ["date", "debit", "credit"]])
+
+            by_month = defaultdict(float)
+            total = 0.0
+            for l in lines:
+                amt = (l.get("debit", 0) or 0) - (l.get("credit", 0) or 0)
+                if amt > 0:
+                    ym = (l.get("date") or "")[:7]
+                    if ym:
+                        by_month[ym] += amt
+                    total += amt
+            monthly = [{"month": k, "amount": round(v, 2)}
+                       for k, v in sorted(by_month.items())]
+            return monthly, round(total, 2)
+        except Exception as e:
+            log(f"      [WARN] marketplace '{partner_keyword}': {e}")
+            return [], 0.0
+
+    marketplaces_data = []
+    for mp in MARKETPLACE_CFG:
+        monthly, total = fetch_marketplace_expenses(mp["partner_kw"], mp["account_prefix"])
+        months_cnt = max(len(monthly), 1)
+        avg = round(total / months_cnt, 2) if monthly else 0.0
+        marketplaces_data.append({
+            "key":        mp["key"],
+            "label":      mp["label"],
+            "total":      total,
+            "avg_monthly": avg,
+            "monthly":    monthly,
+        })
+        log(f"      {mp['label']}: {total:,.0f} ₴ за {len(monthly)} міс, сер/міс {avg:,.0f} ₴")
+
+    # ============================================================
     # Збираємо результат
     # ============================================================
     summary = {
@@ -698,6 +777,7 @@ def main():
                           for c in top_creditors],
         "cashflow": cashflow,
         "payroll": payroll_data,
+        "marketplaces": marketplaces_data,
     }
 
     # Save

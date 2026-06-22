@@ -175,6 +175,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     </div>
   </section>
 
+  <section class="table-section" id="marketplaces-section" style="display:none">
+    <h3>Маркетплейси — витрати та продажі</h3>
+    <div id="marketplaces-summary"></div>
+  </section>
+
   <section class="table-section" id="prom-section" style="display:none">
     <h3>Prom UTM — реальные источники заказов с busauto.kh.ua</h3>
     <div id="prom-summary"></div>
@@ -244,6 +249,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <script>
 const SUMMARY = /*__SUMMARY__*/null;
 const GADS = /*__GADS__*/null;
+const FIN = /*__FINANCE__*/null;
 const COLORS=['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
 const DOW_LABELS=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 
@@ -397,6 +403,7 @@ class Dashboard{
     this.renderDow();
     if(GADS){this.renderMarketing()}
     this.renderAcquisitionAndCohort();
+    this.renderMarketplaces();
     this.renderPromUtm();
     this.renderAbc();
     this.renderDeadStock();
@@ -560,6 +567,57 @@ class Dashboard{
             tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);const p=((c.parsed/t)*100).toFixed(1);return c.label+': '+fmtUAH(c.parsed)+' ('+p+'%)'}}}}}
       });
     }
+  }
+  renderMarketplaces(){
+    const mp = FIN && FIN.marketplaces ? FIN.marketplaces : [];
+    const sources = this.summary.sources || [];
+    // Маппінг: key маркетплейсу → source назва в Odoo
+    const SOURCE_MAP = {prom:'prom.ua', rozetka:'Rozetka', avto:'Avto.pro'};
+    // Збираємо рядки
+    const rows = mp.map(m=>{
+      const srcName = SOURCE_MAP[m.key] || m.label;
+      const s = sources.find(s=>s.source===srcName) || {orders:0, revenue:0};
+      const expense = m.total || 0;
+      const revenue = s.revenue || 0;
+      const roi = expense > 0 ? ((revenue - expense) / expense * 100).toFixed(0) : null;
+      return {label:m.label, expense, avg:m.avg_monthly||0, orders:s.orders||0, revenue, roi};
+    });
+    // Якщо немає даних — показуємо продажі без витрат
+    if(!rows.length){
+      const mpSources = ['prom.ua','Rozetka','Avto.pro'];
+      mpSources.forEach(sn=>{
+        const s = sources.find(s=>s.source===sn);
+        if(s) rows.push({label:sn, expense:0, avg:0, orders:s.orders, revenue:s.revenue, roi:null});
+      });
+    }
+    if(!rows.length) return;
+    document.getElementById('marketplaces-section').style.display='';
+    let html='<table class="data-table"><thead><tr>'
+      +'<th>Маркетплейс</th>'
+      +'<th class="num">Витрати (12 міс)</th>'
+      +'<th class="num">Сер/міс</th>'
+      +'<th class="num">Замовлення</th>'
+      +'<th class="num">Продажі (Odoo)</th>'
+      +'<th class="num">ROI</th>'
+      +'</tr></thead><tbody>';
+    rows.forEach(r=>{
+      const roiClass = r.roi===null?'':r.roi>=200?'style="color:var(--success)"':r.roi>=0?'style="color:var(--warning)"':'style="color:var(--danger)"';
+      const roiTxt = r.roi===null?'—':r.roi+'%';
+      html+='<tr>'
+        +'<td><b>'+r.label+'</b></td>'
+        +'<td class="num">'+(r.expense?fmtUAH(r.expense):'—')+'</td>'
+        +'<td class="num">'+(r.avg?fmtUAH(r.avg):'—')+'</td>'
+        +'<td class="num">'+fmtNum(r.orders)+'</td>'
+        +'<td class="num"><b>'+fmtUAH(r.revenue)+'</b></td>'
+        +'<td class="num" '+roiClass+'><b>'+roiTxt+'</b></td>'
+        +'</tr>';
+    });
+    html+='</tbody></table>';
+    html+='<div style="font-size:11px;color:var(--text-secondary);margin-top:8px">'
+      +'Витрати — рах. 631 (Prom/Rozetka) та 93 (Avto.pro) по відповідних контрагентах за 12 міс. '
+      +'Продажі — Odoo замовлення по source_id за обраний період. '
+      +'ROI = (Продажі − Витрати) / Витрати × 100%.</div>';
+    document.getElementById('marketplaces-summary').innerHTML=html;
   }
   renderPromUtm(){
     const ps=this.summary.prom_sources||[];

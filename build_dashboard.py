@@ -48,6 +48,12 @@ with open(TEMPLATE, "r", encoding="utf-8") as f:
 
 html = html.replace("/*__SUMMARY__*/null", payload)
 html = html.replace("/*__GADS__*/null", gads_payload)
+fin_payload = json.dumps(trim(fin_data), ensure_ascii=False, separators=(",", ":")) if os.path.exists(FIN) and 'fin_data' in dir() else "null"
+if fin_payload == "null" and os.path.exists(FIN):
+    with open(FIN, "r", encoding="utf-8") as f:
+        fin_data = json.load(f)
+    fin_payload = json.dumps(trim(fin_data), ensure_ascii=False, separators=(",", ":"))
+html = html.replace("/*__FINANCE__*/null", fin_payload)
 
 with open(OUTPUT, "w", encoding="utf-8") as f:
     f.write(html)
