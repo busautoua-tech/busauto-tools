@@ -1,0 +1,9 @@
+{
+  "_comment": "BusAuto: налаштування експорту на Маркетплейс Епіцентр",
+  "_comment2": "Облікові дані Odoo зберігаються в odoo_config.txt (не тут)",
+
+  "gdrive_filename":  "epicentr_feed.xml",
+  "gdrive_folder_id": "",
+
+  "batch_size": 50
+}
