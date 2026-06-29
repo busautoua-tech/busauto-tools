@@ -59,12 +59,12 @@ jobs:
         timeout-minutes: 20
         continue-on-error: true
 
-      - name: Send daily digest
-        run: python daily_digest.py
-
       - name: Build dashboards
         run: python build_dashboard.py
         continue-on-error: true
+
+      - name: Send daily digest
+        run: python daily_digest.py
 
       - name: Send dashboards
         run: python send_dashboards_telegram.py
