@@ -33,22 +33,12 @@ jobs:
       - name: Create odoo_config.txt
         run: |
           cat > odoo_config.txt << 'EOF'
-          [odoo]
-          url = https://busauto.ua
-          database = busauto
-          username = busauto.ua@gmail.com
-          api_key = ${{ secrets.ODOO_API_KEY }}
-
-          [ftp]
-          host        = ftp.busauto.ua
-          port        = 21
-          username    = ${{ secrets.FTP_USERNAME }}
-          password    = ${{ secrets.FTP_PASSWORD }}
-          remote_dir  = /www
-          remote_file = google_feed.xml
-          epicentr_file = epicentr_feed.xml
-          epicentr_url  = https://busauto.ua/epicentr_feed.xml
-          EOF
+[odoo]
+url = https://busauto.ua
+database = busauto
+username = busauto.ua@gmail.com
+api_key = ${{ secrets.ODOO_API_KEY }}
+EOF
 
       - name: Determine mode
         id: mode
