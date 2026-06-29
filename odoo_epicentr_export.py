@@ -803,7 +803,11 @@ def main():
     xml_str = generate_xml(products, odoo_cfg["url"], pub_cats)
     save_xml(xml_str)
 
-    url = upload_to_odoo(models, db, uid, pw, odoo_cfg["url"])
+    try:
+        url = upload_to_odoo(models, db, uid, pw, odoo_cfg["url"])
+    except Exception as e:
+        log.warning(f"Upload пропущено: {e}")
+        url = "—"
 
     log.info("=" * 60)
     log.info(f"✅ Готово! Товарів: {xml_str.count('<offer ')} | URL: {url}")
