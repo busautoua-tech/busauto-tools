@@ -1,0 +1,114 @@
+name: Epicentr Feed
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = повний фід | update = тільки ціна+наявність"
+        required: false
+        default: "full"
+        type: choice
+        options: [full, update]
+
+  schedule:
+    # Щодня 15:00 Київ (12:00 UTC) — оновлення цін і наявності
+    - cron: "0 12 * * *"
+    # Щонеділки 10:00 Київ (07:00 UTC) — повний фід (описи, фото, нові товари)
+    - cron: "0 7 * * 0"
+
+jobs:
+  epicentr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create odoo_config.txt
+        run: |
+          cat > odoo_config.txt << 'EOF'
+          [odoo]
+          url = https://busauto.ua
+          database = busauto
+          username = busauto.ua@gmail.com
+          api_key = ${{ secrets.ODOO_API_KEY }}
+
+          [ftp]
+          host        = ftp.busauto.ua
+          port        = 21
+          username    = ${{ secrets.FTP_USERNAME }}
+          password    = ${{ secrets.FTP_PASSWORD }}
+          remote_dir  = /www
+          remote_file = google_feed.xml
+          epicentr_file = epicentr_feed.xml
+          epicentr_url  = https://busauto.ua/epicentr_feed.xml
+          EOF
+
+      - name: Determine mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          elif [ "$(date -u +%u)" = "0" ]; then
+            echo "mode=full" >> $GITHUB_OUTPUT
+          else
+            echo "mode=update" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run full feed
+        if: steps.mode.outputs.mode == 'full'
+        run: python odoo_epicentr_export.py
+        timeout-minutes: 80
+
+      - name: Run update (price + stock)
+        if: steps.mode.outputs.mode == 'update'
+        run: python odoo_epicentr_export.py --update
+        timeout-minutes: 40
+
+      - name: Upload feed to GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete epicentr-feed --yes 2>/dev/null || true
+          gh release create epicentr-feed epicentr_feed.xml \
+            --title "Epicentr Feed" \
+            --notes "Автооновлення $(date +'%d.%m.%Y %H:%M UTC')" \
+            --repo ${{ github.repository }}
+
+      - name: Telegram ✅
+        if: success()
+        run: |
+          MODE="${{ steps.mode.outputs.mode }}"
+          FEED_URL="https://github.com/${{ github.repository }}/releases/download/epicentr-feed/epicentr_feed.xml"
+          if [ "$MODE" = "full" ]; then
+            ICON="🔄"; LABEL="ПОВНИЙ ФІД"
+          else
+            ICON="💰"; LABEL="ЦІНА+НАЯВНІСТЬ"
+          fi
+          MSG="${ICON} Єпіцентр ${LABEL} оновлено%0A🔗 ${FEED_URL}%0A⏱ $(date +'%d.%m.%Y %H:%M UTC')"
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=${MSG}"
+
+      - name: Telegram ❌
+        if: failure()
+        run: |
+          MSG="❌ Єпіцентр фід ПОМИЛКА%0A$(date +'%d.%m.%Y %H:%M UTC')%0AДив. GitHub Actions logs"
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=${MSG}"
+
+      - name: Upload log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: epicentr-log-${{ github.run_number }}
+          path: epicentr_export.log
+          retention-days: 7
