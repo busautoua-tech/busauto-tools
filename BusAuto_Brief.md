@@ -96,11 +96,13 @@
   - Розробник є зовнішній — пишемо йому таски через документ, не безпосередньо
 - **Horoshop** (sync через `sync_odoo_to_horoshop.py` — наш кастомний скрипт)
 - **Prom API** (через oDoo)
-- **Google Ads** — два активних аккаунти + один у перспективі:
+- **Google Ads** — три активних акаунти:
   - 4884912382 → busauto.kh.ua (ROAS **4.65x**, 30д травень 2026) — веде **Internetsolutions** (10 000 ₴/міс)
   - 5691399829 → automobil.in.ua (ROAS **2.78x**, потребує оптимізації) — веде **PPCexperts** (10 000 ₴/міс)
-  - 🔜 busauto.ua — реклама НЕ запущена. Залишки: EN рядки в кошику, артикул на картці. OG description fix — виконано. ✅ **GTM/GA4 — ПЕРЕВІРЕНО 13.06.2026 через Google Tag Assistant: ПРАЦЮЮТЬ.** GTM-WJRRND57 встановлено через Odoo (галочка "Google Tag Manager" в налаштуваннях, модуль website_google_tag/Garazd). GA4 G-05S0L457L5 шле page_view/scroll події. ⚠️ Раніше (06.06.2026) автоматична перевірка коду сторінки показувала відсутність GTM/dataLayer — ймовірна причина: GTM в Odoo вантажиться лише ПІСЛЯ згоди на cookie (consent banner), а той тест йшов без прийняття cookie banner. Залишилось: додати тег конверсії Google Ads на Thank You Page через GTM. Деталі задач: `Developer_Tasks_busauto_final.docx`
-  - **Менеджерський акаунт:** "Керуючий API" ID **2836486392** (283-648-6392) — обидва акаунти під ним
+  - ✅ **busauto.ua (932-989-8660)** — реклама **ЗАПУЩЕНА 24.06.2026**. Performance Max, бюджет 500 ₴/день, стратегія "Максимізувати цінність конверсій". Фід Merchant Center 163800443 підключено. Товари на первинній перевірці (138 082 шт.) — очікується 3–5 робочих днів. Після схвалення почнуть з'являтись покази. GTM-WJRRND57 + GA4 G-05S0L457L5 + конверсійний тег — підтверджені. Акаунт busauto.ua знаходиться під MCC **BusAuto (453-102-4646)**, який в свою чергу під "Керуючий API".
+    - **Оновлення фіду Merchant Center:** push через `push_to_merchant_api.py` (Content API). Щодня 10:00 — змінені товари; щопонеділка 08:00 — повний фід. Налаштувань синхронізації в Google Ads немає — керується скриптами/GitHub Actions.
+    - **UTM:** `utm_source=google&utm_medium=cpc&utm_campaign=busauto_pmax_2026`
+  - **Менеджерська структура:** "Керуючий API" (283-648-6392) → BusAuto MCC (453-102-4646) → busauto.ua (932-989-8660). Також під "Керуючий API" напряму: automobil.in.ua і busauto.kh.ua.
   - **OAuth:** проект `busauto-merchant` (ID: 294564314697), статус **Production** ✅
     - ⚠️ **Токен від 2026-06-04** зроблений під **busauto@gmail.com** — може протухнути якщо є проблеми з цим акаунтом
     - 💡 **Якщо токен знову протухне** → взяти токен від **busauto.ua@gmail.com** (основний робочий акаунт) — він на постійній основі і не протухає
@@ -176,6 +178,55 @@
 - **Прогрес:** `shafer_processed.txt` — список оброблених `product.template.id`
 - **Режими:** `[T]` тест одного артикулу, `[R]` скинути прогрес, `[Enter]` повний запуск
 - **Куки expire:** якщо каже "куки протерміновані" → відкрити Chrome → market.shafer.ua → F12 → Console → `document.cookie` → скопіювати PHPSESSID/uid/shaferOnlyNew → оновити `shafer_cookies.json`
+
+---
+
+## Google Ads API — прямий доступ для управління кампаніями
+
+> ✅ Підключено 2026-06-29. Використовувати замість Supermetrics для будь-яких змін в рекламних кампаніях.
+
+### Credentials
+- **Файл:** `mcp-google-ads/google-ads.yaml`
+- **Developer Token:** `nvaR8lteSaK270FtjYKcAg`
+- **Client ID:** `294564314697-4bci0qto1aps52c217apr88p42h.apps.googleusercontent.com`
+- **Login Customer ID (MCC):** `2836486392` ("Керуючий API")
+- **OAuth проект:** `busauto-merchant` (статус Production ✅)
+
+### Як підключитись в Python
+```python
+from google.ads.googleads.client import GoogleAdsClient
+client = GoogleAdsClient.load_from_storage("mcp-google-ads/google-ads.yaml")
+client.login_customer_id = "2836486392"  # MCC "Керуючий API"
+service = client.get_service("GoogleAdsService")
+```
+
+### Що можна робити через API
+- **Читати дані:** кампанії, ad groups, assets, конверсії, статистика
+- **Оновлювати кампанії:** статус, бюджет, стратегія ставок
+- **Управляти активами PMax:** додавати заголовки, описи, довгі заголовки, зображення
+- **Додаткові посилання (sitelinks):** оновлювати розширення
+- **Пошукові теми (search_themes):** задавати підказки для PMax
+
+### Акаунти і campaign IDs
+| Акаунт | Customer ID | Campaign | Campaign ID |
+|--------|-------------|----------|-------------|
+| busauto.ua | 9329898660 | Campaign #1 (PMax) | 23966593398 |
+| busauto.kh.ua | 4884912382 | — | — |
+| automobil.in.ua | 5691399829 | — | — |
+
+### Asset Group busauto.ua
+- **Asset Group ID:** 6724955946
+- **Resource name:** `customers/9329898660/assetGroups/6724955946`
+- Заголовки: 15/15 ✅ | Описи: 5/5 ✅ | Довгі заголовки: 5/5 ✅ | Відео: 0 ⚠️
+
+### Готові скрипти
+- `check_asset_group.py` — перевірити всі активи asset group
+- `update_campaign_assets.py` — додати активи через batch mutate
+- `add_last_headline.py` — додати окремий актив (AssetService → AssetGroupAssetService)
+- `gads_export.py` — читати статистику 30д → `gads_summary.json`
+
+### ⚠️ Якщо токен протухне
+Запустити `ОНОВИТИ_GADS_TOKEN.bat` → оновити `mcp-google-ads/google-ads.yaml` і GitHub Secret `GADS_REFRESH_TOKEN`
 
 ---
 
@@ -502,7 +553,8 @@ Install gstack: run git clone --single-branch --depth 1 https://github.com/garry
 - **Compliance план**: `BusAuto_Compliance_Growth_Plan.docx` — матриця ризиків (9 позицій), план виправлення бухгалтерії (311008, 311006), ФОП-ліміти, Держпраця
 - **Єпіцентр**: 82 343 товари вивантажено в XML-фід. Google Drive авто-оновлення — в процесі налаштування
 - **Google Ads аналіз** (квіт–трав 2026): busauto.kh.ua ROAS 4.72 / CPA 94 ₴ (добре), automobil.in.ua ROAS 2.13 / CPA 206 ₴ (потребує оптимізації). Загальний бюджет ~103 тис ₴/міс. Проблема: дублювання PMax SHAFER між акаунтами — одну треба поставити на паузу
-- **busauto.ua — готово до реклами** ✅: SEO, GTM/GA4/Thank You Page, локалізація EN, чекаут — всі блокери знято (17.06.2026). Тестове замовлення пройшло, `purchase` зафіксовано в GA4. Наступний крок: передати агенції команду запускати Performance Max кампанію на busauto.ua.
+- **busauto.ua — готово до реклами** ✅: SEO, GTM/GA4/Thank You Page, локалізація EN, чекаут — всі блокери знято (17.06.2026). Тестове замовлення пройшло, `purchase` зафіксовано в GA4. Performance Max кампанія створюється (19.06.2026): тип — PMax, фід Merchant Center 163800443 прив'язаний (932-989-8660), UTM-посилання `https://busauto.ua/r/rYl` (busauto_pmax_2026 / cpc / google).
+- **Маркетплейси в Owner Dashboard (19.06.2026):** додано секцію "Маркетплейси — витрати та продажі". Витрати: рах. 631 (Prom/Rozetka) та 93 (Avto.pro) по контрагентах. Продажі: з Odoo по source_id. Показує ROI по кожному каналу. Щоб оновити дані локально: `python finance_export.py` → `python build_dashboard.py`.
 - **Google Ads API (2026-05-28):** Supermetrics замінено прямим Google Ads API. `gads_export.py` — новий скрипт. OAuth налаштовано через проект `busauto-merchant`. Акаунт busauto.kh.ua прив'язано до MCC "Керуючий API" (2836486392). GitHub Secrets додано (5 шт: GADS_DEVELOPER_TOKEN, GADS_CLIENT_ID, GADS_CLIENT_SECRET, GADS_REFRESH_TOKEN, GADS_LOGIN_CUSTOMER_ID). Свіжі ROAS: busauto.kh.ua 5.06x / automobil.in.ua 2.68x (30д, квіт–трав 2026).
 
 ---
@@ -595,9 +647,60 @@ Install gstack: run git clone --single-branch --depth 1 https://github.com/garry
 - GTM, GA4, canonical, schema.org — підтверджено раніше (13.06.2026, анонімний fetch)
 
 ### Статус виправлень
-- ISSUE-001: ❌ Не виправлено (потрібен доступ до Odoo admin → Сайт → Конфігурація)
-- ISSUE-002: ❌ Не виправлено (технічна проблема, потрібен розробник)
-- ISSUE-003: ❌ Не виправлено (перевірити Search Console, потім налаштувати редиректи в Odoo)
+- ISSUE-001: ✅ Виправлено (24.06.2026 — соціальні кнопки з битими URL прибрані/виправлені)
+- ISSUE-002: ✅ Виправлено (перевірено 24.06.2026 — пошук /shop?search=фільтр завантажується нормально, товари відображаються)
+- ISSUE-003: ✅ Виправлено (перевірено 24.06.2026 — /privacy, /terms, /contactus працюють, є в футері)
+
+---
+
+## Єпіцентр XML Export (odoo_epicentr_export.py)
+
+**Скрипт:** `odoo_epicentr_export.py` | Генерує XML-фід з Odoo → імпорт в маркетплейс Єпіцентр
+
+### Ключові технічні рішення (знайдено через довгу боротьбу)
+
+**Атрибут "Обмін та повернення" — КРИТИЧНО:**
+- `paramcode` у XML — НЕ `"exchange_return"` (як здається), а **`"14195"`** (числовий код атрибуту)
+- `valuecode` для "14 днів з дня покупки": **`"0e28a481b4511ac498d0061d0f702bd5"`**
+- Знайдено через DevTools → Network на сторінці продукту в адмінці Єпіцентру
+- Правильний код:
+```python
+_param(doc, offer, "Обмін та повернення", "14195",
+       valuecode="0e28a481b4511ac498d0061d0f702bd5",
+       text="14 днів з дня покупки")
+```
+
+**Фото:**
+- URL: `{odoo_url}/web/image/product.template/{id}/image_1920/image.jpg`
+- Суфікс `/image.jpg` обов'язковий — без нього Єпіцентр відхиляє (Cloudflare блокує запити без нього)
+
+**Габарити та вага:**
+- Вага: Odoo зберігає в кг → конвертувати в грами (×1000). Дефолт: **100 г**
+- Тег для глибини: **`length`** (не `depth` — дає помилку "Невідомий тег")
+- Дефолти ширина/висота/глибина: **100 мм**
+
+**Vendor та country_of_origin:**
+- `<vendor code="КОД">Назва</vendor>` — атрибут `code` обов'язковий
+- `<country_of_origin code="UA">Україна</country_of_origin>` — атрибут `code` обов'язковий
+
+**Категорія:** код `7160` ("Запчастини для авто")
+
+### API Єпіцентру
+
+| | URL | Auth |
+|---|---|---|
+| Старий (XML import) | `api.epicentrm.com.ua/v2/pim/...` | `token=5a6489d1a5c48c9d174bd31f2a0a8fd0` |
+| Новий (адмінка) | `core-api.epicentrm.com.ua/v2/pim/...` | JWT (тільки з браузера адмінки) |
+
+Старий API закритий CORS і часто дає 404. Нові атрибути шукати через DevTools → Network в адмінці.
+
+### Хостинг XML фіду — ПРОБЛЕМА
+- Google Drive (`uc?export=download&id=...`) — **не працює**: Єпіцентр отримує 0 товарів (GDrive повертає HTML для великих файлів)
+- **Рішення:** розмістити на сервері busauto.ua як `https://busauto.ua/epicentr_feed.xml`
+
+### Тестові скрипти (зберігаються для довідки)
+- `epicentr_test_17.py` — останній робочий тест (10 товарів), всі параметри правильні
+- Правило: кожна нова версія — новий файл (`_test_N.py`), щоб не втратити напрацьоване
 
 ---
 
