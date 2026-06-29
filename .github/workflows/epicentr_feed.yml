@@ -32,13 +32,7 @@ jobs:
 
       - name: Create odoo_config.txt
         run: |
-          cat > odoo_config.txt << 'EOF'
-[odoo]
-url = https://busauto.ua
-database = busauto
-username = busauto.ua@gmail.com
-api_key = ${{ secrets.ODOO_API_KEY }}
-EOF
+          printf '[odoo]\nurl = https://busauto.ua\ndatabase = busauto\nusername = busauto.ua@gmail.com\napi_key = %s\n' "${{ secrets.ODOO_API_KEY }}" > odoo_config.txt
 
       - name: Determine mode
         id: mode
