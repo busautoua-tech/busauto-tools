@@ -20,6 +20,8 @@ jobs:
   epicentr:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
