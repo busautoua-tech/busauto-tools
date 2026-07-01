@@ -29,7 +29,7 @@ from pathlib import Path
 from xml.dom.minidom import Document
 
 # ── Мапи країн: Назва в Odoo (українська) → {code: ISO3, name: українська} ──
-# Єпіцентр вимагає: <country_of_origin code="deu">Німеččина</country_of_origin>
+# Єпіцентр вимагає: <country_of_origin code="deu">Німеччина</country_of_origin>
 EPICENTR_COUNTRY = {
     "Австрія":          {"code": "aut", "name": "Австрія"},
     "Австралія":        {"code": "aus", "name": "Австралія"},
@@ -90,7 +90,7 @@ EPICENTR_CATEGORY_NAME = "Запчастини для авто"
 UPDATE_ONLY    = "--update" in sys.argv
 # Режим --test: перші 20 товарів, окремий файл, XMLRPC upload (без FTP)
 TEST_MODE      = "--test" in sys.argv
-TEST_LIMIT     = 20
+TEST_LIMIT     = 500
 
 # ═══════════════════════════════════════════════════════════
 #  PRICING ENGINE (аналог push_to_merchant_api.py)
@@ -195,6 +195,49 @@ def load_brand_markup_rules(models, db, uid, pw):
     return rules
 
 
+def load_brand_countries(models, db, uid, pw):
+    """Повертає {brand_id: country_name_uk} з product.brand.country_id (мова uk_UA)."""
+    result = {}
+    try:
+        brands = models.execute_kw(db, uid, pw, "product.brand", "search_read",
+            [[]], {"fields": ["id", "country_id"], "limit": 5000,
+                   "context": {"lang": "uk_UA"}})
+        for b in brands:
+            cid = b.get("country_id")
+            if cid and isinstance(cid, (list, tuple)):
+                result[b["id"]] = cid[1]
+        log.info(f"  Країни брендів: {len(result)} записів")
+    except Exception as e:
+        log.warning(f"  ⚠ brand countries: {e}")
+    return result
+
+
+def load_extra_prices(models, db, uid, pw, tmpl_ids):
+    """Повертає {tmpl_id: fixed_price} з прайс-листа 'Роздріб' (id=1).
+    Це поле 'Extra Price' в картці товару — має найвищий пріоритет.
+    """
+    price_map = {}
+    chunk_size = 2000
+    for i in range(0, len(tmpl_ids), chunk_size):
+        chunk = tmpl_ids[i:i + chunk_size]
+        try:
+            records = models.execute_kw(db, uid, pw, "product.pricelist.item", "search_read",
+                [[["pricelist_id", "=", 1], ["applied_on", "=", "1_product"],
+                  ["compute_price", "=", "fixed"], ["product_tmpl_id", "in", chunk],
+                  ["fixed_price", ">", 0]]],
+                {"fields": ["product_tmpl_id", "fixed_price"], "limit": 50000})
+            for rec in records:
+                tmpl_id = rec.get("product_tmpl_id")
+                if not tmpl_id:
+                    continue
+                tmpl_id = tmpl_id[0] if isinstance(tmpl_id, (list, tuple)) else tmpl_id
+                price_map[tmpl_id] = round(float(rec["fixed_price"]), 2)
+        except Exception as e:
+            log.warning(f"  ⚠ extra_prices пакет {i // chunk_size + 1}: {e}")
+    log.info(f"  Extra Prices (Роздріб): {len(price_map)} товарів")
+    return price_map
+
+
 def load_supplier_prices(models, db, uid, pw, tmpl_ids, currency_rates):
     """Повертає {tmpl_id: min_price_uah} — найдешевший постачальник."""
     price_map = {}
@@ -222,13 +265,18 @@ def load_supplier_prices(models, db, uid, pw, tmpl_ids, currency_rates):
     return price_map
 
 
-def compute_product_price(p, supp_price_map, currency_rates, categ_ancestors, brand_rules):
+def compute_product_price(p, supp_price_map, currency_rates, categ_ancestors, brand_rules,
+                          extra_price_map=None):
     """
     Розраховує роздрібну ціну товару.
-    Пріоритет: ціна постачальника → apply markup.
-    Fallback: list_price (якщо нема постачальника).
+    Пріоритет: Extra Price (Роздріб pricelist) → ціна постачальника + markup → list_price.
     """
     tmpl_id = p["id"]
+
+    # Найвищий пріоритет — Extra Price з прайс-листа "Роздріб" (id=1)
+    if extra_price_map and tmpl_id in extra_price_map:
+        return extra_price_map[tmpl_id]
+
     categ_id = p.get("categ_id")
     if isinstance(categ_id, (list, tuple)):
         categ_id = categ_id[0]
@@ -339,11 +387,10 @@ def get_products(models, db, uid, pw, cfg):
     Мікро-пакети по batch_size — обхід MemoryError у lbs_busauto.
     """
     domain = [
-        ("sale_ok",       "=",  True),
-        ("active",        "=",  True),
-        ("type",          "in", ["product", "consu"]),
-        ("qty_available", ">",  0),
-        ("image_1920",    "!=", False),
+        ("sale_ok",    "=",  True),
+        ("active",     "=",  True),
+        ("type",       "in", ["product", "consu"]),
+        ("image_1920", "!=", False),
     ]
 
     if UPDATE_ONLY:
@@ -356,6 +403,7 @@ def get_products(models, db, uid, pw, cfg):
             "description_sale", "public_categ_ids",
             "barcode", "weight", "country_of_origin",
             "product_brand_id", "categ_id", "standard_price",
+            "qty_available",
         ]
 
     # Перевіряємо чи існує поле product_brand_id у цій версії Odoo
@@ -466,11 +514,10 @@ def generate_xml(products, odoo_url, pub_cats):
 
 def _make_offer_id(p):
     """
-    Унікальний ID для Єпіцентру = тільки артикул (без бренду), макс 64 символи.
-    Єпіцентр вимагає: буквено-цифрове значення без розділових знаків.
+    Унікальний ID для Єпіцентру = Odoo template ID (завжди унікальний).
+    Артикул передається окремо у <vendorCode>.
     """
-    article = re.sub(r'[^A-Za-z0-9А-ЯҐЄІЇа-яґєії]', '', p.get("_article", str(p["id"])))
-    return article[:64] or str(p["id"])
+    return str(p["id"])
 
 
 def _offer_update_only(doc, offers_el, p):
@@ -517,25 +564,27 @@ def _offer_full(doc, offers_el, p, odoo_url, pub_cats):
     offer.appendChild(aset)
 
     # ── Назва (ua + ru) ───────────────────────────────────
-    name = (p.get("name") or "")[:150].strip()
-    for lang in ("ua", "ru"):
+    name_uk = (p.get("name_uk") or p.get("name") or "")[:150].strip()
+    name_ru = (p.get("name_ru") or p.get("name") or "")[:150].strip()
+    for lang, nm in (("ua", name_uk), ("ru", name_ru)):
         n = doc.createElement("name")
         n.setAttribute("lang", lang)
-        n.appendChild(doc.createTextNode(name))
+        n.appendChild(doc.createTextNode(nm))
         offer.appendChild(n)
 
     # ── Фото ──────────────────────────────────────────────
     _el(doc, offer, "picture",
-        f"{odoo_url}/web/image/product.template/{p['id']}/image_1920")
+        f"{odoo_url}/web/image/product.template/{p['id']}/image_1920/image.jpg")
 
     # ── Опис (ua + ru) — HTML-entities як у шаблоні ───────
-    raw_desc = str(p.get("description_sale") or name).strip()
-    if not raw_desc.startswith("<"):
-        raw_desc = f"<p>{raw_desc}</p>"
-    for lang in ("ua", "ru"):
+    desc_uk = str(p.get("desc_uk") or p.get("description_sale") or name_uk).strip()
+    desc_ru = str(p.get("desc_ru") or p.get("description_sale") or name_ru).strip()
+    for lang, raw_desc in (("ua", desc_uk), ("ru", desc_ru)):
+        if not raw_desc.startswith("<"):
+            raw_desc = f"<p>{raw_desc}</p>"
         d = doc.createElement("description")
         d.setAttribute("lang", lang)
-        d.appendChild(doc.createTextNode(raw_desc))   # → автоматично html-entities
+        d.appendChild(doc.createTextNode(raw_desc))
         offer.appendChild(d)
 
     # ── Бренд: <vendor code="..."> ────────────────────────
@@ -550,7 +599,8 @@ def _offer_full(doc, offers_el, p, odoo_url, pub_cats):
         offer.appendChild(v)
 
     # ── Країна: <country_of_origin code="deu"> ───────────
-    co = p.get("country_of_origin")
+    # Пріоритет: product.template.country_of_origin → product.brand.country_id
+    co = p.get("country_of_origin") or p.get("_country")
     if co:
         co_name = (co[1] if isinstance(co, (list, tuple)) else str(co)).strip()
         epicentr_co = EPICENTR_COUNTRY.get(co_name)
@@ -780,6 +830,7 @@ def main():
     currency_rates  = load_currency_rates(models, db, uid, pw)
     categ_ancestors = load_categ_ancestors(models, db, uid, pw)
     brand_rules     = load_brand_markup_rules(models, db, uid, pw)
+    brand_country_map = load_brand_countries(models, db, uid, pw)
 
     products = get_products(models, db, uid, pw, epicentr_cfg)
     if not products:
@@ -787,14 +838,50 @@ def main():
         return
 
     # Ціни постачальників для всіх шаблонів
-    tmpl_ids    = [p["id"] for p in products]
+    tmpl_ids = [p["id"] for p in products]
+
+    # Додаємо країну бренду до кожного товару
+    for p in products:
+        brand_raw = p.get("product_brand_id")
+        brand_id = brand_raw[0] if isinstance(brand_raw, (list, tuple)) else None
+        if brand_id and brand_id in brand_country_map:
+            p["_country"] = brand_country_map[brand_id]
+
+    # Завантажуємо переклади назв і описів для uk_UA і ru_RU
+    if not UPDATE_ONLY:
+        log.info("Завантаження перекладів (uk_UA / ru_RU)...")
+        trans_fields = ["id", "name", "description_sale"]
+        for lang_code, key in (("uk_UA", "_uk"), ("ru_RU", "_ru")):
+            try:
+                chunk_size = 200
+                trans_map = {}
+                for i in range(0, len(tmpl_ids), chunk_size):
+                    chunk = tmpl_ids[i:i + chunk_size]
+                    rows = models.execute_kw(db, uid, pw,
+                        "product.template", "read",
+                        [chunk], {"fields": trans_fields, "context": {"lang": lang_code}}
+                    )
+                    for row in rows:
+                        trans_map[row["id"]] = {
+                            "name": row.get("name") or "",
+                            "description_sale": row.get("description_sale") or "",
+                        }
+                for p in products:
+                    t = trans_map.get(p["id"], {})
+                    p[f"name{key}"] = t.get("name") or p.get("name") or ""
+                    p[f"desc{key}"] = t.get("description_sale") or ""
+                log.info(f"  {lang_code}: {len(trans_map)} перекладів")
+            except Exception as e:
+                log.warning(f"  ⚠ Переклади {lang_code}: {e}")
+    extra_prices = load_extra_prices(models, db, uid, pw, tmpl_ids)
     supp_prices = load_supplier_prices(models, db, uid, pw, tmpl_ids, currency_rates)
 
     # Розраховуємо роздрібну ціну для кожного товару
     log.info("Розрахунок роздрібних цін...")
     zero_price = 0
     for p in products:
-        price = compute_product_price(p, supp_prices, currency_rates, categ_ancestors, brand_rules)
+        price = compute_product_price(p, supp_prices, currency_rates, categ_ancestors, brand_rules,
+                                      extra_price_map=extra_prices)
         p["_retail_price"] = str(price)
         if price <= 0:
             zero_price += 1
@@ -818,7 +905,7 @@ def main():
         vendor_with_code = xml_str.count(' code="') - xml_str.count('<country_of_origin code=')
         vendor_total     = xml_str.count('<vendor')
         print("\n" + "=" * 60)
-        print(f"  🧪 ТЕСТ ЗАВЕРШЕНО")
+        print(f"  ТЕСТ ЗАВЕРШЕНО")
         print(f"  Товарів у XML:         {xml_str.count('<offer ')}")
         print(f"  <vendor> з кодом:      {vendor_with_code}/{vendor_total}")
         print(f"  <country_of_origin>:   {xml_str.count('<country_of_origin')}")
