@@ -435,8 +435,36 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
 
     if mode == "daily":
         since = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%d %H:%M:%S")
-        domain.append(["write_date", ">=", since])
-        log(f"Режим DAILY — тільки змінені після {since} UTC")
+
+        # Товари, у яких змінилась Extra Price (product.pricelist.item) —
+        # write_date самого product.template при цьому НЕ оновлюється,
+        # тож без цієї перевірки такі товари випадають з daily-режиму назавжди
+        # (лише раз на тиждень підхоплювались би повним синком)
+        extra_tmpl_ids = set()
+        try:
+            changed_items = models.execute_kw(db, uid, apikey,
+                "product.pricelist.item", "search_read",
+                [[["pricelist_id", "=", 1], ["write_date", ">=", since]]],
+                {"fields": ["product_tmpl_id", "product_id"], "limit": 50000})
+            for it in changed_items:
+                if it.get("product_tmpl_id"):
+                    extra_tmpl_ids.add(it["product_tmpl_id"][0])
+            variant_ids = [it["product_id"][0] for it in changed_items if it.get("product_id")]
+            if variant_ids:
+                variants = models.execute_kw(db, uid, apikey,
+                    "product.product", "read", [variant_ids], {"fields": ["product_tmpl_id"]})
+                for v in variants:
+                    if v.get("product_tmpl_id"):
+                        extra_tmpl_ids.add(v["product_tmpl_id"][0])
+        except Exception as e:
+            log(f"  ⚠ Помилка перевірки змінених Extra Price: {e}")
+
+        if extra_tmpl_ids:
+            domain += ["|", ["write_date", ">=", since], ["id", "in", list(extra_tmpl_ids)]]
+        else:
+            domain.append(["write_date", ">=", since])
+        log(f"Режим DAILY — змінені після {since} UTC "
+            f"(+{len(extra_tmpl_ids)} товарів з оновленою Extra Price)")
     else:
         log("Режим FULL — всі товари (перший/повний синк)")
 
@@ -551,7 +579,24 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
 
     # ── Крок 6: фіксовані ціни прайс-листа (пріоритет 1) ────────────
     RETAIL_PRICELIST_ID = 1
-    log("Завантажуємо фіксовані ціни прайс-листа 'Розниця'...")
+    log("Завантажуємо фіксовані ціни прайс-листа 'Розниця' (Extra Price)...")
+
+    # Extra Price на рівні шаблону (applied_on=1_product) — найвищий пріоритет
+    tmpl_price_map = {}
+    try:
+        tmpl_items = models.execute_kw(db, uid, apikey,
+            "product.pricelist.item", "search_read",
+            [[["pricelist_id", "=", RETAIL_PRICELIST_ID],
+              ["applied_on",   "=", "1_product"],
+              ["compute_price","=", "fixed"],
+              ["fixed_price",  ">", 0]]],
+            {"fields": ["product_tmpl_id", "fixed_price"], "limit": 50000})
+        for item in tmpl_items:
+            if item.get("product_tmpl_id") and item.get("fixed_price", 0) > 0:
+                tmpl_price_map[item["product_tmpl_id"][0]] = item["fixed_price"]
+        log(f"  Extra Prices (шаблони): {len(tmpl_price_map)}")
+    except Exception as e:
+        log(f"  ⚠ Помилка читання Extra Price шаблонів: {e}")
     variant_price_map = {}
     try:
         pl_offset = 0
@@ -586,12 +631,18 @@ def load_products(models, db, uid, apikey, mode="full", days_back=2):
         variants = p.get("product_variant_ids") or []
         retail   = 0.0
 
+        # Пріоритет 0: Extra Price на рівні шаблону (поле в картці товару)
+        if tmpl_id in tmpl_price_map:
+            retail = tmpl_price_map[tmpl_id]
+            matched_fixed += 1
+
         # Пріоритет 1: фіксована ціна варіанта в прайс-листі
-        for vid in variants:
-            if vid in variant_price_map:
-                retail = variant_price_map[vid]
-                matched_fixed += 1
-                break
+        if not retail:
+            for vid in variants:
+                if vid in variant_price_map:
+                    retail = variant_price_map[vid]
+                    matched_fixed += 1
+                    break
 
         # Визначаємо бренд і categ один раз (потрібно для кількох пріоритетів)
         categ_raw = p.get("categ_id")
