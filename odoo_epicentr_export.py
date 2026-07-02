@@ -90,7 +90,7 @@ EPICENTR_CATEGORY_NAME = "Запчастини для авто"
 UPDATE_ONLY    = "--update" in sys.argv
 # Режим --test: перші 20 товарів, окремий файл, XMLRPC upload (без FTP)
 TEST_MODE      = "--test" in sys.argv
-TEST_LIMIT     = 500
+TEST_LIMIT     = 1000
 
 # ═══════════════════════════════════════════════════════════
 #  PRICING ENGINE (аналог push_to_merchant_api.py)

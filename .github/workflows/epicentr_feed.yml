@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "full = повний фід | update = тільки ціна+наявність"
+        description: "full = повний фід | update = тільки ціна+наявність | test = тестовий (999 товарів)"
         required: false
         default: "full"
         type: choice
-        options: [full, update]
+        options: [full, update, test]
 
   schedule:
     # Щодня 15:00 Київ (12:00 UTC) — оновлення цін і наявності
@@ -57,15 +57,23 @@ jobs:
         run: python odoo_epicentr_export.py --update
         timeout-minutes: 40
 
+      - name: Run test feed (999 products)
+        if: steps.mode.outputs.mode == 'test'
+        run: python odoo_epicentr_export.py --test
+        timeout-minutes: 20
+
       - name: Upload feed to GitHub Release
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "test" ]; then
+            cp epicentr_test_feed.xml epicentr_feed.xml
+          fi
           gh release delete epicentr-feed --yes 2>/dev/null || true
           gh release create epicentr-feed epicentr_feed.xml \
             --title "Epicentr Feed" \
-            --notes "Автооновлення $(date +'%d.%m.%Y %H:%M UTC')" \
+            --notes "Автооновлення $(date +'%d.%m.%Y %H:%M UTC') (${{ steps.mode.outputs.mode }})" \
             --repo ${{ github.repository }}
 
       - name: Telegram ✅
@@ -75,6 +83,8 @@ jobs:
           FEED_URL="https://github.com/${{ github.repository }}/releases/download/epicentr-feed/epicentr_feed.xml"
           if [ "$MODE" = "full" ]; then
             ICON="🔄"; LABEL="ПОВНИЙ ФІД"
+          elif [ "$MODE" = "test" ]; then
+            ICON="🧪"; LABEL="ТЕСТОВИЙ ФІД (999 товарів)"
           else
             ICON="💰"; LABEL="ЦІНА+НАЯВНІСТЬ"
           fi
